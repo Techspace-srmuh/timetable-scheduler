@@ -7,6 +7,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import type { Controller as ScrollMagicController } from "scrollmagic";
 import StartupIntro from "./startup-intro";
+import SidebarRobot from "./sidebar-robot";
 import {
   Activity,
   ArrowRight,
@@ -990,29 +991,7 @@ export default function Home() {
             })}
           </nav>
 
-          <div className="mt-auto rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff8a24]/15 text-[#ffab63]">
-                <CalendarDays size={15} />
-              </div>
-              <p className="text-xs font-semibold">Ready when you are</p>
-            </div>
-            <p className="text-[11px] leading-5 text-white/55">
-              Turn your course list into a balanced weekly plan.
-            </p>
-            <button
-              onClick={generateTimetable}
-              disabled={loading}
-              className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#ff8a24] px-3 text-xs font-semibold text-[#262521] transition hover:bg-[#ffa14d] disabled:opacity-50"
-            >
-              {loading ? (
-                <LoaderCircle size={16} className="animate-spin" />
-              ) : (
-                <WandSparkles size={16} />
-              )}
-              {loading ? "Building schedule" : "Generate schedule"}
-            </button>
-          </div>
+          <SidebarRobot />
 
           <div className="mt-5 flex items-center gap-3 border-t border-white/10 px-2 pt-5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">

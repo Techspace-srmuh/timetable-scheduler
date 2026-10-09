@@ -1,65 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import type { DotLottie } from "@lottiefiles/dotlottie-react";
 import { ArrowRight, CalendarDays } from "lucide-react";
-import {
-  Component,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import type { ErrorInfo, ReactNode } from "react";
-
-const DotLottieReact = dynamic(
-  () =>
-    import("@lottiefiles/dotlottie-react").then(
-      (module) => module.DotLottieReact
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        className="startup-intro__static-mark startup-intro__loading-mark"
-        aria-hidden="true"
-      >
-        <CalendarDays size={58} strokeWidth={1.35} />
-      </div>
-    ),
-  }
-);
-
-class AnimationErrorBoundary extends Component<
-  { children: ReactNode; onError: () => void },
-  { failed: boolean }
-> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Unable to load the Chronos intro animation.", error, info);
-    this.props.onError();
-  }
-
-  render() {
-    if (this.state.failed) {
-      return (
-        <div
-          className="startup-intro__static-mark startup-intro__loading-mark"
-          aria-hidden="true"
-        >
-          <CalendarDays size={58} strokeWidth={1.35} />
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export default function StartupIntro({
   onComplete,
@@ -70,7 +12,6 @@ export default function StartupIntro({
   const [leaving, setLeaving] = useState(false);
   const completed = useRef(false);
   const exitTimer = useRef<number | null>(null);
-  const player = useRef<DotLottie | null>(null);
 
   const finishIntro = useCallback(() => {
     if (completed.current) return;
@@ -79,25 +20,6 @@ export default function StartupIntro({
     setLeaving(true);
     exitTimer.current = window.setTimeout(onComplete, 550);
   }, [onComplete]);
-
-  const handlePlayerRef = useCallback(
-    (instance: DotLottie | null) => {
-      if (player.current) {
-        player.current.removeEventListener("complete", finishIntro);
-        player.current.removeEventListener("loadError", finishIntro);
-        player.current.removeEventListener("renderError", finishIntro);
-      }
-
-      player.current = instance;
-
-      if (instance) {
-        instance.addEventListener("complete", finishIntro);
-        instance.addEventListener("loadError", finishIntro);
-        instance.addEventListener("renderError", finishIntro);
-      }
-    },
-    [finishIntro]
-  );
 
   useEffect(() => {
     const motionPreference = window.matchMedia(
@@ -208,20 +130,52 @@ export default function StartupIntro({
 
       <div className="startup-intro__content">
         <div className="startup-intro__logo" aria-hidden="true">
-          <div className="startup-intro__static-mark">
-            <CalendarDays size={58} strokeWidth={1.35} />
-          </div>
-          {!reducedMotion && (
-            <AnimationErrorBoundary onError={finishIntro}>
-              <DotLottieReact
-                src="/chronos-book-loader.lottie"
-                autoplay
-                loop={false}
-                speed={0.9}
-                dotLottieRefCallback={handlePlayerRef}
-                aria-hidden="true"
-              />
-            </AnimationErrorBoundary>
+          {reducedMotion ? (
+            <div className="startup-intro__static-mark">
+              <CalendarDays size={58} strokeWidth={1.35} />
+            </div>
+          ) : (
+            <div className="intro-card-deck">
+              <div className="intro-card intro-card--final">
+                <span className="intro-card__heading">READY TO PLAN</span>
+                <span className="intro-card__rule" />
+                <CalendarDays className="intro-card__icon" size={25} />
+              </div>
+              <div className="intro-card intro-card--one">
+                <span className="intro-card__heading">YOUR WEEK</span>
+                <span className="intro-card__rule" />
+                <span className="intro-card__lines">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <CalendarDays className="intro-card__icon" size={25} />
+              </div>
+              <div className="intro-card intro-card--two">
+                <span className="intro-card__heading">IN RHYTHM</span>
+                <span className="intro-card__rule" />
+                <span className="intro-card__grid">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <CalendarDays className="intro-card__icon" size={25} />
+              </div>
+              <div
+                className="intro-card intro-card--three"
+                onAnimationEnd={finishIntro}
+              >
+                <span className="intro-card__heading">CHRONOS</span>
+                <span className="intro-card__rule" />
+                <span className="intro-card__lines">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <CalendarDays className="intro-card__icon" size={25} />
+              </div>
+            </div>
           )}
         </div>
         <h1 id="startup-intro-title" className="startup-intro__title">
