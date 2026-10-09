@@ -1,0 +1,2485 @@
+
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+import type { Controller as ScrollMagicController } from "scrollmagic";
+import StartupIntro from "./startup-intro";
+import {
+  Activity,
+  ArrowRight,
+  ArrowUpRight,
+  Bell,
+  BookOpen,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  DoorOpen,
+  GraduationCap,
+  LayoutDashboard,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  Sparkles,
+  Users,
+  WandSparkles,
+  X,
+} from "lucide-react";
+
+gsap.registerPlugin(useGSAP);
+
+type Course = {
+  id: string;
+  name: string;
+  hours_per_week: number;
+  faculty: string;
+  room: string;
+  color: string;
+};
+
+type TimetableEntry = {
+  course: string;
+  faculty?: string;
+  room?: string;
+  day: number | string;
+  slot: number;
+  day_name?: string;
+};
+
+const INITIAL_COURSES: Course[] = [
+  {
+    id: "1",
+    name: "FOCP",
+    hours_per_week: 4,
+    faculty: "Faculty A",
+    room: "Lab 01",
+    color: "#8c7cf0",
+  },
+  {
+    id: "2",
+    name: "BEE",
+    hours_per_week: 3,
+    faculty: "Faculty B",
+    room: "Room 204",
+    color: "#e9a45c",
+  },
+  {
+    id: "3",
+    name: "Engineering Chemistry",
+    hours_per_week: 3,
+    faculty: "Faculty C",
+    room: "Room 106",
+    color: "#53b6a0",
+  },
+  {
+    id: "4",
+    name: "Biology for Engineers",
+    hours_per_week: 3,
+    faculty: "Faculty D",
+    room: "Room 302",
+    color: "#df8499",
+  },
+  {
+    id: "5",
+    name: "Digital Logic",
+    hours_per_week: 4,
+    faculty: "Faculty E",
+    room: "Room 208",
+    color: "#6d9de8",
+  },
+];
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+const PERIODS = [
+  "09:00",
+  "10:00",
+  "11:15",
+  "12:15",
+  "14:00",
+  "15:00",
+];
+
+const API_ENDPOINT = "http://localhost:8000/generate";
+
+const NAVIGATION = [
+  {
+    name: "Overview",
+    label: "Today",
+    icon: LayoutDashboard,
+    description: "Your academic overview",
+  },
+  {
+    name: "Timetable",
+    label: "Calendar",
+    icon: CalendarDays,
+    description: "Your weekly schedule",
+  },
+  {
+    name: "Courses",
+    label: "Courses",
+    icon: BookOpen,
+    description: "Manage your courses",
+  },
+  {
+    name: "Faculty",
+    label: "Faculty",
+    icon: Users,
+    description: "Faculty directory",
+  },
+  {
+    name: "Rooms",
+    label: "Rooms",
+    icon: DoorOpen,
+    description: "Classroom availability",
+  },
+  {
+    name: "Constraints",
+    label: "Preferences",
+    icon: Settings2,
+    description: "Scheduling preferences",
+  },
+];
+
+const PAGE_CONTENT: Record<
+  string,
+  { eyebrow: string; title: string; description: string }
+> = {
+  Overview: {
+    eyebrow: "ACADEMIC PLANNER",
+    title: "Your academic week",
+    description:
+      "A clear view of your courses, teaching load, and weekly schedule.",
+  },
+  Timetable: {
+    eyebrow: "WEEKLY SCHEDULE",
+    title: "Timetable",
+    description:
+      "Review your classes by day and period, including assigned faculty and rooms.",
+  },
+  Courses: {
+    eyebrow: "COURSE MANAGEMENT",
+    title: "Courses",
+    description:
+      "Manage course names, weekly periods, faculty, and classroom assignments.",
+  },
+  Faculty: {
+    eyebrow: "ACADEMIC DIRECTORY",
+    title: "Faculty",
+    description: "Review faculty members and their current course assignments.",
+  },
+  Rooms: {
+    eyebrow: "CAMPUS DIRECTORY",
+    title: "Rooms",
+    description: "Review rooms and the courses currently assigned to each one.",
+  },
+  Constraints: {
+    eyebrow: "ACADEMIC PLANNER",
+    title: "Constraints",
+    description: "Review the scheduler configuration.",
+  },
+};
+
+function getDayIndex(day: number | string): number {
+  if (typeof day === "number") {
+    return day >= 0 && day <= 4 ? day : day >= 1 && day <= 5 ? day - 1 : -1;
+  }
+
+  const value = String(day).toLowerCase().trim();
+
+  const aliases: Record<string, number> = {
+    mon: 0,
+    monday: 0,
+    tue: 1,
+    tues: 1,
+    tuesday: 1,
+    wed: 2,
+    wednesday: 2,
+    thu: 3,
+    thur: 3,
+    thurs: 3,
+    thursday: 3,
+    fri: 4,
+    friday: 4,
+  };
+
+  if (value in aliases) return aliases[value];
+
+  const parsed = Number(value);
+  if (!Number.isNaN(parsed)) {
+    if (parsed >= 0 && parsed <= 4) return parsed;
+    if (parsed >= 1 && parsed <= 5) return parsed - 1;
+  }
+
+  return -1;
+}
+
+function initials(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function SectionHeading({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h2
+          data-scroll-reveal-item
+          className="text-xl font-semibold tracking-tight text-[#242424] sm:text-2xl"
+        >
+          {title}
+        </h2>
+        {description && (
+          <p
+            data-scroll-reveal-item
+            className="mt-2 text-sm leading-6 text-[#888888] sm:text-[15px]"
+          >
+            {description}
+          </p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+export default function Home() {
+  const root = useRef<HTMLDivElement>(null);
+
+  const [activePage, setActivePage] = useState("Overview");
+  const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
+  const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [generated, setGenerated] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [lastGeneratedAt, setLastGeneratedAt] = useState<Date | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [introVisible, setIntroVisible] = useState(true);
+  const dismissIntro = useCallback(() => setIntroVisible(false), []);
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setCurrentTime(now);
+      setSelectedDate((value) => value ?? now);
+    };
+
+    updateClock();
+    const interval = window.setInterval(updateClock, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useGSAP(
+    () => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        return;
+      }
+
+      gsap.fromTo(
+        ".reveal",
+        { y: 16, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          duration: 0.55,
+          stagger: 0.065,
+          ease: "power2.out",
+          clearProps: "all",
+        }
+      );
+    },
+    { scope: root, dependencies: [activePage] }
+  );
+
+  useEffect(() => {
+    if (activePage !== "Overview" || !root.current) return;
+
+    const targets = Array.from(
+      root.current.querySelectorAll<HTMLElement>(
+        ".scroll-reveal, .feature-card"
+      )
+    );
+    const motionPreference = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    );
+    const animations: gsap.core.Timeline[] = [];
+    const contentObservers: MutationObserver[] = [];
+    const focusListeners: Array<{
+      target: HTMLElement;
+      onFocusIn: () => void;
+      onFocusOut: (event: FocusEvent) => void;
+    }> = [];
+    let controller: ScrollMagicController | null = null;
+
+    const clearScenes = () => {
+      controller?.destroy(true);
+      controller = null;
+      focusListeners.forEach(({ target, onFocusIn, onFocusOut }) => {
+        target.removeEventListener("focusin", onFocusIn);
+        target.removeEventListener("focusout", onFocusOut);
+      });
+      focusListeners.length = 0;
+      contentObservers.forEach((observer) => observer.disconnect());
+      contentObservers.length = 0;
+      animations.forEach((animation) => animation.kill());
+      animations.length = 0;
+      gsap.set(
+        [
+          ...targets,
+          ...targets.flatMap((target) =>
+            Array.from(
+              target.querySelectorAll<HTMLElement>(
+                "[data-scroll-reveal-item], [data-scroll-reveal-icon], [data-scroll-reveal-indicator]"
+              )
+            )
+          ),
+        ],
+        { clearProps: "opacity,transform,clipPath,filter,boxShadow" }
+      );
+    };
+
+    let cancelled = false;
+
+    const createScenes = async () => {
+      const { default: ScrollMagic } = await import("scrollmagic");
+      if (cancelled || motionPreference.matches || controller) return;
+
+      const nextController = new ScrollMagic.Controller({
+        loglevel: 0,
+        refreshInterval: 0,
+      });
+      controller = nextController;
+
+      targets.forEach((target) => {
+        const getContent = () =>
+          Array.from(
+            target.querySelectorAll<HTMLElement>(
+            "[data-scroll-reveal-item], [data-scroll-reveal-icon], [data-scroll-reveal-indicator]"
+            )
+          );
+        let content = getContent();
+        let timeline: gsap.core.Timeline;
+        let hasEntered = false;
+        const animationIndex = animations.length;
+        const contentStart = 0.54;
+        const contentStagger = 0.035;
+
+        const buildTimeline = () => {
+          const nextTimeline = gsap.timeline({ paused: true });
+          nextTimeline.fromTo(
+            target,
+            { autoAlpha: 0, y: 20, scale: 0.99, immediateRender: false },
+            {
+              autoAlpha: 1,
+              y: 0,
+              scale: 1,
+              duration: 0.48,
+              ease: "power3.out",
+            },
+            0
+          );
+
+          content.forEach((element, index) => {
+            const position = contentStart + index * contentStagger;
+
+            if (element.hasAttribute("data-scroll-reveal-indicator")) {
+              nextTimeline.fromTo(
+                element,
+                {
+                  scaleX: 0,
+                  transformOrigin: "left center",
+                  immediateRender: false,
+                },
+                { scaleX: 1, duration: 0.38, ease: "power2.out" },
+                position
+              );
+              return;
+            }
+
+            if (element.hasAttribute("data-scroll-reveal-icon")) {
+              nextTimeline.fromTo(
+                element,
+                {
+                  autoAlpha: 0,
+                  y: 5,
+                  scale: 0.82,
+                  rotation: -4,
+                  immediateRender: false,
+                },
+                {
+                  autoAlpha: 1,
+                  y: 0,
+                  scale: 1,
+                  rotation: 0,
+                  duration: 0.34,
+                  ease: "back.out(1.5)",
+                },
+                position
+              );
+              return;
+            }
+
+            nextTimeline.fromTo(
+              element,
+              {
+                autoAlpha: 0,
+                y: 6,
+                clipPath: "inset(0 100% 0 0 round 2px)",
+                immediateRender: false,
+              },
+              {
+                autoAlpha: 1,
+                y: 0,
+                clipPath: "inset(0 0% 0 0 round 2px)",
+                duration: 0.34,
+                ease: "power2.out",
+              },
+              position
+            );
+          });
+
+          if (content.length > 0) {
+            const lastContentEnd =
+              contentStart + (content.length - 1) * contentStagger + 0.38;
+            nextTimeline.to(
+              content,
+              {
+                filter: "brightness(1.07)",
+                duration: 0.1,
+                stagger: 0.012,
+                yoyo: true,
+                repeat: 1,
+                ease: "sine.inOut",
+              },
+              lastContentEnd
+            );
+          }
+
+          return nextTimeline;
+        };
+
+        timeline = buildTimeline();
+        animations.push(timeline);
+        const onFocusIn = () => {
+          hasEntered = true;
+          timeline.progress(1);
+        };
+        const onFocusOut = (event: FocusEvent) => {
+          if (
+            event.relatedTarget instanceof Node &&
+            target.contains(event.relatedTarget)
+          ) {
+            return;
+          }
+
+          window.requestAnimationFrame(() => {
+            if (target.contains(document.activeElement)) return;
+            const triggerLine = window.innerHeight * 0.88;
+            hasEntered = target.getBoundingClientRect().top < triggerLine;
+            if (!hasEntered) {
+              timeline.reverse();
+            } else {
+              timeline.play();
+            }
+          });
+        };
+        target.addEventListener("focusin", onFocusIn);
+        target.addEventListener("focusout", onFocusOut);
+        focusListeners.push({ target, onFocusIn, onFocusOut });
+
+        const observer = new MutationObserver(() => {
+          const nextContent = getContent();
+          if (
+            nextContent.length === content.length &&
+            nextContent.every((element, index) => element === content[index])
+          ) {
+            return;
+          }
+
+          const shouldPlay = hasEntered || target.contains(document.activeElement);
+          const previousContent = content;
+          timeline.kill();
+          gsap.set([target, ...previousContent], {
+            clearProps: "opacity,transform,clipPath,filter,boxShadow",
+          });
+          content = nextContent;
+          timeline = buildTimeline();
+          animations[animationIndex] = timeline;
+          if (shouldPlay) timeline.play();
+        });
+        observer.observe(target, { childList: true, subtree: true });
+        contentObservers.push(observer);
+
+        new ScrollMagic.Scene({
+          triggerElement: target,
+          triggerHook: 0.88,
+          reverse: true,
+        })
+          .on("enter", (event) => {
+            if (motionPreference.matches) return;
+            if (event.scrollDirection === "REVERSE") {
+              if (target.contains(document.activeElement)) {
+                hasEntered = true;
+                timeline.progress(1);
+              } else {
+                hasEntered = false;
+                timeline.reverse();
+              }
+            } else {
+              hasEntered = true;
+              timeline.play();
+            }
+          })
+          .addTo(nextController);
+      });
+    };
+
+    const handleMotionPreferenceChange = () => {
+      clearScenes();
+      if (!motionPreference.matches) void createScenes();
+    };
+
+    if (!motionPreference.matches) void createScenes();
+    motionPreference.addEventListener("change", handleMotionPreferenceChange);
+
+    return () => {
+      cancelled = true;
+      motionPreference.removeEventListener(
+        "change",
+        handleMotionPreferenceChange
+      );
+      clearScenes();
+    };
+  }, [activePage]);
+
+  function updateCourse(id: string, key: keyof Course, value: string | number) {
+    setCourses((current) =>
+      current.map((course) =>
+        course.id === id ? { ...course, [key]: value } : course
+      )
+    );
+  }
+
+  function addCourse() {
+    const newCourse: Course = {
+      id: `${Date.now()}`,
+      name: "New Course",
+      hours_per_week: 3,
+      faculty: "Faculty",
+      room: "Room",
+      color: "#9b91e8",
+    };
+
+    setCourses((current) => [...current, newCourse]);
+    setNotice("New course added. Update its details below.");
+    setError("");
+  }
+
+  function removeCourse(id: string) {
+    setCourses((current) => current.filter((course) => course.id !== id));
+    setNotice("Course removed.");
+    setError("");
+  }
+
+  async function generateTimetable() {
+    if (courses.length === 0) {
+      setError("Add at least one course before generating a timetable.");
+      setNotice("");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          courses: courses.map((course) => ({
+            name: course.name,
+            hours_per_week: Number(course.hours_per_week),
+            faculty: course.faculty,
+            room: course.room,
+          })),
+          days: 5,
+          slots_per_day: 6,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `The scheduling server returned an error (${response.status}).`
+        );
+      }
+
+      const data: unknown = await response.json();
+
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        !("status" in data) ||
+        !("message" in data)
+      ) {
+        throw new Error("The scheduler returned an invalid response.");
+      }
+
+      if (data.status !== "success") {
+        throw new Error(
+          typeof data.message === "string"
+            ? data.message
+            : "The scheduler could not generate a timetable."
+        );
+      }
+
+      if (!("timetable" in data) || !Array.isArray(data.timetable)) {
+        throw new Error("The server response did not contain a valid timetable.");
+      }
+
+      setTimetable(data.timetable);
+      setGenerated(true);
+      setLastGeneratedAt(new Date());
+      setNotice("Your timetable has been generated successfully.");
+      setActivePage("Timetable");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+
+      setError(
+        message.includes("fetch")
+          ? "Could not connect to the scheduling backend. Make sure your backend is running at http://localhost:8000."
+          : message
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function courseColor(name: string) {
+    return (
+      courses.find(
+        (course) => course.name.toLowerCase() === name.toLowerCase()
+      )?.color ?? "#9b91e8"
+    );
+  }
+
+  const filteredCourses = courses.filter((course) =>
+    `${course.name} ${course.faculty} ${course.room}`
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+  );
+
+  const totalHours = courses.reduce(
+    (total, course) => total + Number(course.hours_per_week || 0),
+    0
+  );
+
+  const uniqueFaculty = new Set(
+    courses.map((course) => course.faculty.trim()).filter(Boolean)
+  ).size;
+
+  const uniqueRooms = new Set(
+    courses.map((course) => course.room.trim()).filter(Boolean)
+  ).size;
+
+  const facultyGroups = Array.from(
+    courses.reduce((map, course) => {
+      const key = course.faculty || "Unassigned";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(course);
+      return map;
+    }, new Map<string, Course[]>())
+  );
+
+  const roomGroups = Array.from(
+    courses.reduce((map, course) => {
+      const key = course.room || "Unassigned";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(course);
+      return map;
+    }, new Map<string, Course[]>())
+  );
+  const filteredFacultyGroups = facultyGroups.filter(([faculty, group]) =>
+    `${faculty} ${group.map((course) => course.name).join(" ")}`
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase())
+  );
+  const filteredRoomGroups = roomGroups.filter(([room, group]) =>
+    `${room} ${group.map((course) => course.name).join(" ")}`
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase())
+  );
+  const matchingTimetable = timetable.filter((entry) =>
+    `${entry.course} ${entry.faculty ?? ""} ${entry.room ?? ""}`
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase())
+  );
+
+  const displayedDate = selectedDate ?? currentTime;
+  const selectedDayIndex = displayedDate
+    ? displayedDate.getDay() === 0 || displayedDate.getDay() === 6
+      ? -1
+      : displayedDate.getDay() - 1
+    : -1;
+  const isShowingToday =
+    displayedDate !== null &&
+    currentTime !== null &&
+    displayedDate.toDateString() === currentTime.toDateString();
+  const dateEntries = matchingTimetable
+    .filter(
+      (entry) =>
+        selectedDayIndex >= 0 &&
+        getDayIndex(entry.day_name ?? entry.day) === selectedDayIndex
+    )
+    .sort((left, right) => Number(left.slot) - Number(right.slot));
+  const currentSlotIndex = currentTime
+    ? PERIODS.findIndex((period) => {
+        const [hour, minute] = period.split(":").map(Number);
+        return currentTime.getHours() * 60 + currentTime.getMinutes() <=
+          hour * 60 + minute;
+      })
+    : -1;
+  const filteredDateEntries = dateEntries;
+  const nextEntry =
+    dateEntries.find(
+      (entry) =>
+        !isShowingToday ||
+        (currentSlotIndex >= 0 && Number(entry.slot) >= currentSlotIndex)
+    ) ??
+    matchingTimetable.find(
+      (entry) => getDayIndex(entry.day_name ?? entry.day) > selectedDayIndex
+    ) ??
+    matchingTimetable[0];
+  const completeCourses = courses.filter(
+    (course) => course.name.trim() && course.faculty.trim() && course.room.trim()
+  ).length;
+  const setupProgress = courses.length
+    ? Math.round((completeCourses / courses.length) * 100)
+    : 0;
+  const currentMinuteOfDay = currentTime
+    ? currentTime.getHours() * 60 + currentTime.getMinutes()
+    : -1;
+  const agendaPosition =
+    isShowingToday && currentMinuteOfDay >= 9 * 60 && currentMinuteOfDay <= 16 * 60
+      ? ((currentMinuteOfDay - 9 * 60) / (7 * 60)) * 100
+      : null;
+
+  function shiftSelectedDate(offset: number) {
+    setSelectedDate((current) => {
+      const nextDate = new Date(current ?? new Date());
+      nextDate.setDate(nextDate.getDate() + offset);
+      return nextDate;
+    });
+  }
+
+  function openPage(page: string) {
+    setActivePage(page);
+    setError("");
+    setNotice("");
+    setNotificationsOpen(false);
+    setProfileOpen(false);
+  }
+
+  function renderTimetable(compact = false) {
+    const minWidth = compact ? "900px" : "1120px";
+
+    return (
+      <div className="overflow-x-auto">
+        <div style={{ minWidth }}>
+          <div
+            className="grid"
+            style={{
+              gridTemplateColumns: `76px repeat(5, minmax(0, 1fr))`,
+            }}
+          >
+            <div className="border-b border-r border-[#eeeeee] bg-[#fafafa] p-3" />
+
+            {DAYS.map((day) => (
+              <div
+                key={day}
+                className="border-b border-r border-[#eeeeee] bg-[#fafafa] px-3 py-4 text-center last:border-r-0 sm:px-4"
+              >
+                <p className="text-sm font-semibold text-[#333333] sm:text-base">
+                  {compact ? day.slice(0, 3) : day}
+                </p>
+                <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-[#aaaaaa]">
+                  {day === "Monday"
+                    ? "MON"
+                    : day === "Tuesday"
+                      ? "TUE"
+                      : day === "Wednesday"
+                        ? "WED"
+                        : day === "Thursday"
+                          ? "THU"
+                          : "FRI"}
+                </p>
+              </div>
+            ))}
+
+            {PERIODS.map((period, slotIndex) => (
+              <div key={period} className="contents">
+                <div className="flex min-h-[120px] flex-col items-center justify-start border-b border-r border-[#eeeeee] bg-[#fafafa] px-2 py-5 sm:min-h-[150px]">
+                  <span className="text-sm font-semibold text-[#454545]">
+                    {period}
+                  </span>
+                  <span className="mt-2 text-[10px] text-[#aaaaaa]">
+                    P{slotIndex + 1}
+                  </span>
+                </div>
+
+                {DAYS.map((day, dayIndex) => {
+                  const entry = matchingTimetable.find(
+                    (item) =>
+                      getDayIndex(item.day_name ?? item.day) === dayIndex &&
+                      Number(item.slot) === slotIndex
+                  );
+
+                  const matchingCourse = entry
+                    ? courses.find(
+                        (course) =>
+                          course.name.toLowerCase() ===
+                          entry.course.toLowerCase()
+                      )
+                    : undefined;
+
+                  const accent = entry
+                    ? matchingCourse?.color ?? courseColor(entry.course)
+                    : "#e7e3fb";
+
+                  return (
+                    <div
+                      key={`${day}-${slotIndex}`}
+                      className="min-h-[120px] border-b border-r border-[#eeeeee] p-2 last:border-r-0 sm:min-h-[150px] sm:p-3"
+                    >
+                      {entry ? (
+                        <div
+                          className="flex h-full min-h-[100px] flex-col justify-between rounded-xl border p-3 sm:min-h-[126px] sm:p-4"
+                          style={{
+                            backgroundColor: `${accent}14`,
+                            borderColor: `${accent}45`,
+                          }}
+                        >
+                          <div>
+                            <div
+                              className="mb-3 h-1 w-8 rounded-full"
+                              style={{ backgroundColor: accent }}
+                            />
+                            <p className="break-words text-sm font-semibold leading-5 text-[#303030] sm:text-base">
+                              {entry.course}
+                            </p>
+                          </div>
+
+                          <div className="mt-4 space-y-1.5">
+                            {(entry.faculty || matchingCourse?.faculty) && (
+                              <p className="truncate text-xs text-[#777777] sm:text-sm">
+                                {entry.faculty || matchingCourse?.faculty}
+                              </p>
+                            )}
+                            {(entry.room || matchingCourse?.room) && (
+                              <p className="truncate text-[11px] text-[#999999] sm:text-xs">
+                                {entry.room || matchingCourse?.room}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex h-full min-h-[100px] items-center justify-center rounded-xl border border-dashed border-[#eeeeee] sm:min-h-[126px]">
+                          <span className="text-xs text-[#d0d0d0]">—</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentNavigation =
+    NAVIGATION.find((item) => item.name === activePage) ?? NAVIGATION[0];
+  const pageContent = PAGE_CONTENT[activePage] ?? PAGE_CONTENT.Overview;
+
+  return (
+    <div
+      ref={root}
+      className="app-frame min-h-screen overflow-x-clip bg-[#f5f1e9] text-[#262521] selection:bg-[#ffe1bd]"
+    >
+      {introVisible && <StartupIntro onComplete={dismissIntro} />}
+      <div
+        aria-hidden={introVisible}
+        inert={introVisible}
+        className="dashboard-shell flex min-h-screen gap-5 p-3 sm:gap-6 sm:p-5"
+      >
+        {/* Desktop sidebar */}
+        <aside className="desktop-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[240px] shrink-0 flex-col overflow-y-auto rounded-[26px] bg-[#252523] px-4 py-5 text-white shadow-[0_20px_60px_rgba(31,29,25,0.14)] lg:flex">
+          <div className="mb-9 flex items-center gap-3 px-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ff8a24] text-[#252523]">
+              <Activity size={22} strokeWidth={1.8} />
+            </div>
+            <div>
+              <p className="text-lg font-semibold tracking-tight">Chronos</p>
+              <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.18em] text-white/50">
+                Focus, in rhythm
+              </p>
+            </div>
+          </div>
+
+          <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
+            Workspace
+          </p>
+
+          <nav aria-label="Workspace" className="space-y-1">
+            {NAVIGATION.map((item) => {
+              const Icon = item.icon;
+              const active = activePage === item.name;
+
+              return (
+                <button
+                  key={item.name}
+                  onClick={() => {
+                    openPage(item.name);
+                  }}
+                  aria-current={active ? "page" : undefined}
+                  className={`group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[13px] transition-colors ${
+                    active
+                      ? "bg-[#ff8a24] text-[#262521]"
+                      : "text-white/65 hover:bg-white/[0.07] hover:text-white"
+                  }`}
+                >
+                  <Icon size={17} strokeWidth={1.8} />
+                  <span className="font-medium">{item.label}</span>
+                  {active && (
+                    <ArrowRight
+                      className="ml-auto"
+                      size={14}
+                      strokeWidth={1.8}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="mt-auto rounded-2xl border border-white/10 bg-white/[0.045] p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff8a24]/15 text-[#ffab63]">
+                <CalendarDays size={15} />
+              </div>
+              <p className="text-xs font-semibold">Ready when you are</p>
+            </div>
+            <p className="text-[11px] leading-5 text-white/55">
+              Turn your course list into a balanced weekly plan.
+            </p>
+            <button
+              onClick={generateTimetable}
+              disabled={loading}
+              className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#ff8a24] px-3 text-xs font-semibold text-[#262521] transition hover:bg-[#ffa14d] disabled:opacity-50"
+            >
+              {loading ? (
+                <LoaderCircle size={16} className="animate-spin" />
+              ) : (
+                <WandSparkles size={16} />
+              )}
+              {loading ? "Building schedule" : "Generate schedule"}
+            </button>
+          </div>
+
+          <div className="mt-5 flex items-center gap-3 border-t border-white/10 px-2 pt-5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">
+              SW
+            </div>
+            <div>
+              <p className="text-xs font-semibold">Student workspace</p>
+              <p className="mt-1 text-[10px] text-white/45">Local planner</p>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <main className="min-w-0 flex-1">
+          <header className="top-header relative z-40 flex min-h-[68px] items-center justify-between gap-4 rounded-2xl border border-[#e8e1d6] bg-[#faf8f3] px-4 shadow-[0_4px_16px_rgba(44,39,31,0.035)] sm:px-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#252523] text-[#ff8a24] lg:hidden">
+                <Activity size={16} />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#a39b8e]">
+                  Chronos workspace
+                </p>
+                <p className="mt-0.5 text-sm font-semibold text-[#2a2925]">
+                  {currentNavigation.label}
+                </p>
+              </div>
+            </div>
+
+            <label className="relative hidden max-w-[340px] flex-1 md:block">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search courses, faculty, rooms..."
+                aria-label="Search courses, faculty, and rooms"
+                className="h-10 w-full rounded-xl border border-[#e8e1d6] bg-white pl-10 pr-4 text-xs text-[#2a2925] outline-none transition placeholder:text-[#a9a196] focus:border-[#ff8a24]"
+              />
+            </label>
+
+            <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 rounded-full border border-[#e8e1d6] bg-white px-3 py-2 sm:flex">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    generated ? "bg-[#4e9b78]" : "bg-[#ff8a24]"
+                  }`}
+                />
+                <span className="text-[10px] font-medium text-[#716b61]">
+                  {generated ? "Schedule ready" : "Planner active"}
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  setNotificationsOpen((open) => !open);
+                  setProfileOpen(false);
+                }}
+                aria-label="Notifications"
+                aria-expanded={notificationsOpen}
+                className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#e8e1d6] bg-white text-[#514c43] transition hover:border-[#ff8a24] hover:text-[#bc5810]"
+              >
+                <Bell size={17} />
+                {generated && (
+                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-white bg-[#ff8a24]" />
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setProfileOpen((open) => !open);
+                  setNotificationsOpen(false);
+                }}
+                aria-label="Student workspace menu"
+                aria-expanded={profileOpen}
+                className="flex h-10 items-center gap-2 rounded-xl border border-[#e8e1d6] bg-white px-2 text-left transition hover:border-[#ff8a24] sm:px-2.5"
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#252523] text-[9px] font-semibold text-white">
+                  SW
+                </span>
+                <span className="hidden text-[11px] font-semibold text-[#514c43] sm:inline">
+                  Workspace
+                </span>
+                <ChevronDown size={13} className="hidden text-[#8e877c] sm:block" />
+              </button>
+            </div>
+
+            {notificationsOpen && (
+              <div className="absolute right-14 top-[calc(100%+10px)] z-50 w-[min(320px,calc(100vw-32px))] rounded-2xl border border-[#e8e1d6] bg-white p-4 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-[#292823]">
+                    Updates
+                  </h2>
+                  <button
+                    onClick={() => setNotificationsOpen(false)}
+                    aria-label="Close updates"
+                    className="rounded-lg p-1.5 text-[#8c857a] hover:bg-[#f6f2eb]"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                {generated ? (
+                  <button
+                    onClick={() => openPage("Timetable")}
+                    className="mt-3 flex w-full items-start gap-3 rounded-xl bg-[#fff5eb] p-3 text-left transition hover:bg-[#ffeedc]"
+                  >
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#ff8a24] text-[#292823]">
+                      <Check size={16} />
+                    </span>
+                    <span>
+                      <span className="block text-xs font-semibold text-[#292823]">
+                        Your schedule is ready
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-5 text-[#756d62]">
+                        {lastGeneratedAt
+                          ? `Updated ${lastGeneratedAt.toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}. View your weekly calendar.`
+                          : "View your weekly calendar."}
+                      </span>
+                    </span>
+                  </button>
+                ) : (
+                  <p className="mt-3 rounded-xl bg-[#f8f5ef] p-3 text-xs leading-5 text-[#756d62]">
+                    You&apos;re all caught up. Schedule updates will appear here
+                    after you generate a timetable.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {profileOpen && (
+              <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-56 rounded-2xl border border-[#e8e1d6] bg-white p-2 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
+                <div className="border-b border-[#eee8de] px-3 py-2.5">
+                  <p className="text-xs font-semibold text-[#292823]">
+                    Student workspace
+                  </p>
+                  <p className="mt-1 text-[10px] text-[#8b8479]">
+                    Local timetable planner
+                  </p>
+                </div>
+                <button
+                  onClick={() => openPage("Courses")}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs text-[#514c43] hover:bg-[#f8f5ef]"
+                >
+                  <BookOpen size={14} /> Manage courses
+                </button>
+                <button
+                  onClick={() => openPage("Constraints")}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs text-[#514c43] hover:bg-[#f8f5ef]"
+                >
+                  <Settings2 size={14} /> Scheduler preferences
+                </button>
+              </div>
+            )}
+          </header>
+
+          {/* Mobile navigation */}
+          <nav
+            aria-label="Primary"
+            className="mobile-navigation fixed inset-x-3 bottom-3 z-40 grid grid-cols-6 rounded-2xl border border-[#e6ded1] bg-[#fffdf8]/95 p-1.5 shadow-[0_14px_45px_rgba(34,30,23,0.18)] backdrop-blur lg:hidden"
+          >
+              {NAVIGATION.map((item) => {
+                const Icon = item.icon;
+                const active = activePage === item.name;
+
+                return (
+                  <button
+                    key={item.name}
+                    onClick={() => {
+                      openPage(item.name);
+                    }}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-2 text-[9px] font-medium transition-colors ${
+                      active
+                        ? "bg-[#252523] text-white shadow-sm"
+                        : "text-[#756e62] hover:bg-[#f5f0e8] hover:text-[#292823]"
+                    }`}
+                  >
+                    <Icon size={16} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+          </nav>
+
+          <div className="mx-auto w-full max-w-[1440px] px-1 pb-24 pt-7 sm:px-2 sm:pb-28 sm:pt-9 lg:px-4 lg:pb-10 lg:pt-9">
+            <label className="relative mb-5 block md:hidden">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search courses, faculty, rooms..."
+                aria-label="Search courses, faculty, and rooms"
+                className="h-11 w-full rounded-xl border border-[#e8e1d6] bg-[#fffdf8] pl-10 pr-4 text-xs text-[#2a2925] outline-none transition placeholder:text-[#a9a196] focus:border-[#ff8a24]"
+              />
+            </label>
+
+            {/* Page heading */}
+            <div className="reveal mb-8 flex flex-col justify-between gap-5 border-b border-[#e7dfd3] pb-7 sm:mb-8 sm:flex-row sm:items-end">
+              <div>
+                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#bf5a12]">
+                  {activePage === "Overview"
+                    ? "YOUR PERSONAL PLANNER"
+                    : pageContent.eyebrow}
+                </p>
+                <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.045em] text-[#292823] sm:text-[36px]">
+                  {activePage === "Overview"
+                    ? `${currentTime ? (currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening") : "Welcome"}, Student`
+                    : pageContent.title}
+                </h1>
+                <p className="mt-2.5 max-w-2xl text-[13px] leading-6 text-[#777064]">
+                  {activePage === "Overview"
+                    ? "A clear plan for your classes, with room to focus between them."
+                    : pageContent.description}
+                </p>
+              </div>
+
+              {(activePage === "Overview" ||
+                activePage === "Timetable" ||
+                activePage === "Constraints" ||
+                activePage === "Courses") && (
+                <button
+                  onClick={
+                    activePage === "Courses" ? addCourse : generateTimetable
+                  }
+                  disabled={activePage !== "Courses" && loading}
+                  className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#ff8a24] px-4 text-[12px] font-semibold text-[#252523] shadow-[0_5px_15px_rgba(224,109,28,0.2)] transition hover:-translate-y-0.5 hover:bg-[#ffa14d] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {activePage === "Courses" ? (
+                    <Plus size={15} />
+                  ) : loading ? (
+                    <LoaderCircle size={15} className="animate-spin" />
+                  ) : (
+                    <WandSparkles size={15} />
+                  )}
+                  {activePage === "Courses"
+                    ? "Add course"
+                    : loading
+                      ? "Generating..."
+                      : activePage === "Overview"
+                        ? "Add schedule"
+                        : "Generate timetable"}
+                </button>
+              )}
+            </div>
+
+            {/* Status messages */}
+            {error && (
+              <div role="alert" className="reveal mb-6 flex items-start gap-3 rounded-2xl border border-[#f0d6d0] bg-[#fff6f3] p-5 text-sm text-[#a04f40]">
+                <Activity size={19} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1 leading-6">{error}</div>
+                <button
+                  onClick={() => setError("")}
+                  aria-label="Dismiss error"
+                  className="rounded-lg p-1 hover:bg-[#fce9e4]"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+            )}
+
+            {notice && (
+              <div role="status" className="reveal mb-6 flex items-start gap-3 rounded-2xl border border-[#d8ebe2] bg-[#f3faf6] p-5 text-sm text-[#36775c]">
+                <Check size={19} className="mt-0.5 shrink-0" />
+                <p className="flex-1 leading-6">{notice}</p>
+                <button
+                  onClick={() => setNotice("")}
+                  aria-label="Dismiss message"
+                  className="rounded-lg p-1 hover:bg-[#e7f5ed]"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+            )}
+
+            {/* Overview */}
+            {activePage === "Overview" && (
+              <div className="overview-stack">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    {
+                      label: "Courses configured",
+                      value: courses.length,
+                      detail: "Courses in this workspace",
+                      icon: BookOpen,
+                      color: "#7953a6",
+                      bg: "#f3eef9",
+                      cardBg: "#f3e7bf",
+                      borderColor: "#c89c19",
+                    },
+                    {
+                      label: "Faculty members",
+                      value: uniqueFaculty,
+                      detail: "Unique faculty assignments",
+                      icon: GraduationCap,
+                      color: "#459b87",
+                      bg: "#e7f6f0",
+                      cardBg: "#dcebe5",
+                      borderColor: "#567a70",
+                    },
+                    {
+                      label: "Rooms",
+                      value: uniqueRooms,
+                      detail: "Rooms assigned to courses",
+                      icon: DoorOpen,
+                      color: "#648ed0",
+                      bg: "#eaf1ff",
+                      cardBg: "#d9e9e7",
+                      borderColor: "#528b82",
+                    },
+                    {
+                      label: "Scheduled periods",
+                      value: generated ? timetable.length : "—",
+                      detail: generated
+                        ? "Periods in the generated timetable"
+                        : "Generate a timetable to populate",
+                      icon: Clock3,
+                      color: "#7960a4",
+                      bg: "#f3eef9",
+                      cardBg: "#f1ead5",
+                      borderColor: "#b89a47",
+                    },
+                  ].map((stat) => {
+                    const Icon = stat.icon;
+
+                    return (
+                      <div
+                        key={stat.label}
+                        className="dashboard-metric-card scroll-reveal rounded-2xl border border-[#d8e5e2] border-t-[3px] p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.045)] sm:p-6"
+                        style={{
+                          backgroundColor: stat.cardBg,
+                          borderTopColor: stat.borderColor,
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            data-scroll-reveal-item
+                            className="metric-label text-sm font-medium text-[#71807c]"
+                          >
+                            {stat.label}
+                          </span>
+                          <div
+                            data-scroll-reveal-icon
+                            className="metric-icon flex h-10 w-10 items-center justify-center rounded-xl"
+                            style={{
+                              color: stat.color,
+                              backgroundColor: stat.bg,
+                            }}
+                          >
+                            <Icon size={20} strokeWidth={1.8} />
+                          </div>
+                        </div>
+                        <p
+                          data-scroll-reveal-item
+                          className="metric-value mt-5 text-[32px] font-semibold tracking-[-0.045em] text-[#253633] sm:text-[36px]"
+                        >
+                          {stat.value}
+                        </p>
+                        <p
+                          data-scroll-reveal-item
+                          className="metric-detail mt-2 text-xs leading-5 text-[#71807c] sm:text-sm"
+                        >
+                          {stat.detail}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <section className="agenda-panel scroll-reveal overflow-hidden rounded-[26px] bg-[#252523] text-white shadow-[0_20px_52px_rgba(37,37,35,0.16)]">
+                  <div className="flex flex-col justify-between gap-5 px-5 py-5 sm:flex-row sm:items-center sm:px-7 sm:py-6">
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          data-scroll-reveal-icon
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff8a24] text-[#252523]"
+                        >
+                          <CalendarDays size={16} />
+                        </span>
+                        <div>
+                          <p
+                            data-scroll-reveal-item
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45"
+                          >
+                            Your day, at a glance
+                          </p>
+                          <h2
+                            data-scroll-reveal-item
+                            className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
+                          >
+                            Daily agenda
+                          </h2>
+                        </div>
+                      </div>
+                      <p
+                        data-scroll-reveal-item
+                        className="mt-3 pl-10 text-xs text-white/55 sm:text-sm"
+                      >
+                        {displayedDate
+                          ? displayedDate.toLocaleDateString(undefined, {
+                              weekday: "long",
+                              month: "long",
+                              day: "numeric",
+                            })
+                          : "Preparing today’s schedule"}
+                        <span className="px-2 text-white/25">·</span>
+                        {dateEntries.length}{" "}
+                        {dateEntries.length === 1 ? "class" : "classes"}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <button
+                        onClick={() => shiftSelectedDate(-1)}
+                        aria-label="Previous day"
+                        data-scroll-reveal-item
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 text-white/75 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                      >
+                        <ChevronLeft size={17} />
+                      </button>
+                      <button
+                        onClick={() => setSelectedDate(currentTime ?? new Date())}
+                        data-scroll-reveal-item
+                        className="h-9 rounded-xl border border-white/15 px-3 text-[11px] font-medium text-white/75 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => shiftSelectedDate(1)}
+                        aria-label="Next day"
+                        data-scroll-reveal-item
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 text-white/75 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                      >
+                        <ChevronRight size={17} />
+                      </button>
+                      <button
+                        onClick={() => openPage("Timetable")}
+                        data-scroll-reveal-item
+                        className="ml-1 flex h-9 items-center gap-2 rounded-xl bg-white px-3 text-[11px] font-semibold text-[#252523] transition hover:bg-[#ffead8] sm:px-4"
+                      >
+                        Week view <ArrowUpRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    aria-hidden="true"
+                    className="mx-5 border-t border-white/10 sm:mx-7"
+                  />
+
+                  {timetable.length === 0 ? (
+                    <div className="flex min-h-[320px] flex-col items-center justify-center px-6 py-12 text-center">
+                      <div
+                        data-scroll-reveal-icon
+                        className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-[#ff9a43]"
+                      >
+                        <Sparkles size={24} />
+                      </div>
+                      <h3
+                        data-scroll-reveal-item
+                        className="mt-5 text-lg font-semibold"
+                      >
+                        Your schedule starts here
+                      </h3>
+                      <p
+                        data-scroll-reveal-item
+                        className="mt-2 max-w-sm text-sm leading-6 text-white/55"
+                      >
+                        Generate a timetable from your courses to see your
+                        classes on this live day view.
+                      </p>
+                      <button
+                        onClick={generateTimetable}
+                        disabled={loading}
+                        data-scroll-reveal-item
+                        className="mt-5 flex h-11 items-center gap-2 rounded-xl bg-[#ff8a24] px-4 text-sm font-semibold text-[#252523] transition hover:bg-[#ffa14d] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {loading ? (
+                          <LoaderCircle size={16} className="animate-spin" />
+                        ) : (
+                          <Plus size={16} />
+                        )}
+                        {loading ? "Building schedule…" : "Add schedule"}
+                      </button>
+                    </div>
+                  ) : selectedDayIndex < 0 ? (
+                    <div className="flex min-h-[290px] flex-col items-center justify-center px-6 py-12 text-center">
+                      <CalendarDays
+                        data-scroll-reveal-icon
+                        size={25}
+                        className="text-[#ff9a43]"
+                      />
+                      <h3
+                        data-scroll-reveal-item
+                        className="mt-4 text-base font-semibold"
+                      >
+                        A little more breathing room
+                      </h3>
+                      <p
+                        data-scroll-reveal-item
+                        className="mt-2 max-w-sm text-sm leading-6 text-white/55"
+                      >
+                        Your generated classes run Monday through Friday. Use
+                        the arrows to browse your scheduled weekdays.
+                      </p>
+                    </div>
+                  ) : filteredDateEntries.length === 0 ? (
+                    <div className="flex min-h-[290px] flex-col items-center justify-center px-6 py-12 text-center">
+                      <CalendarDays
+                        data-scroll-reveal-icon
+                        size={25}
+                        className="text-[#ff9a43]"
+                      />
+                      <h3
+                        data-scroll-reveal-item
+                        className="mt-4 text-base font-semibold"
+                      >
+                        {searchQuery.trim()
+                          ? "No matching classes"
+                          : "No classes planned"}
+                      </h3>
+                      <p
+                        data-scroll-reveal-item
+                        className="mt-2 max-w-sm text-sm leading-6 text-white/55"
+                      >
+                        {searchQuery.trim()
+                          ? "Try another course, faculty member, or room."
+                          : "This day is open in your generated timetable."}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="px-4 pb-5 pt-3 sm:px-7 sm:pb-7">
+                      <div className="mb-3 flex items-center justify-between pl-[68px] text-[9px] font-semibold uppercase tracking-[0.16em] text-white/35 sm:pl-[76px]">
+                        <span data-scroll-reveal-item>Scheduled blocks</span>
+                        <span data-scroll-reveal-item>09:00 — 16:00</span>
+                      </div>
+                      <div
+                        className="agenda-rows relative"
+                        role="list"
+                        aria-label="Classes for the selected day"
+                      >
+                        {agendaPosition !== null && (
+                          <div
+                            className="agenda-current-time"
+                            style={{ top: `${agendaPosition}%` }}
+                            aria-label={`Current time ${currentTime?.toLocaleTimeString(
+                              [],
+                              { hour: "numeric", minute: "2-digit" }
+                            )}`}
+                          >
+                            <span className="agenda-time-pill">
+                              {currentTime?.toLocaleTimeString([], {
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                        )}
+                        {PERIODS.map((period, index) => {
+                          const entry = filteredDateEntries.find(
+                            (item) => Number(item.slot) === index
+                          );
+                          const matchingCourse = entry
+                            ? courses.find(
+                                (course) =>
+                                  course.name.toLowerCase() ===
+                                  entry.course.toLowerCase()
+                              )
+                            : undefined;
+                          const accent = entry
+                            ? matchingCourse?.color ?? "#ff8a24"
+                            : undefined;
+
+                          return (
+                            <div
+                              key={period}
+                              role="listitem"
+                              className="agenda-row grid grid-cols-[55px_minmax(0,1fr)] items-stretch gap-3 sm:grid-cols-[64px_minmax(0,1fr)] sm:gap-4"
+                            >
+                              <div className="flex flex-col items-start pt-3.5">
+                                <span data-scroll-reveal-item className="text-[11px] font-semibold text-white/75">
+                                  {period}
+                                </span>
+                                <span data-scroll-reveal-item className="mt-1 text-[9px] text-white/35">
+                                  P{index + 1}
+                                </span>
+                              </div>
+                              <div className="agenda-slot flex min-h-[68px] items-center border-t border-white/[0.09] py-2">
+                                {entry && accent ? (
+                                  <div
+                                    data-scroll-reveal-item
+                                    className="agenda-event flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 sm:px-4"
+                                    style={{
+                                      backgroundColor: `${accent}25`,
+                                      borderColor: `${accent}75`,
+                                    }}
+                                  >
+                                    <span
+                                      className="h-9 w-1 shrink-0 rounded-full"
+                                      style={{ backgroundColor: accent }}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <p
+                                        data-scroll-reveal-item
+                                        className="truncate text-xs font-semibold text-white sm:text-sm"
+                                      >
+                                        {entry.course}
+                                      </p>
+                                      <p
+                                        data-scroll-reveal-item
+                                        className="mt-1 truncate text-[10px] text-white/60 sm:text-xs"
+                                      >
+                                        {entry.faculty || matchingCourse?.faculty}
+                                        {entry.room || matchingCourse?.room
+                                          ? ` · ${entry.room || matchingCourse?.room}`
+                                          : ""}
+                                      </p>
+                                    </div>
+                                    <span
+                                      data-scroll-reveal-item
+                                      className="hidden rounded-lg bg-black/15 px-2 py-1 text-[9px] font-medium text-white/70 sm:block"
+                                    >
+                                      {index < 3 ? "Morning" : "Afternoon"}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span data-scroll-reveal-item className="px-2 text-[10px] text-white/20">
+                                    Open time
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p
+                        data-scroll-reveal-item
+                        className="mt-3 flex items-center gap-2 pl-[68px] text-[10px] text-white/40 sm:pl-[76px]"
+                      >
+                        <span
+                          data-scroll-reveal-icon
+                          className="h-1.5 w-1.5 rounded-full bg-[#ff8a24]"
+                        />
+                        {agendaPosition !== null
+                          ? "Current time"
+                          : isShowingToday
+                            ? "The live marker appears between 9 AM and 4 PM."
+                            : "Showing your selected day."}
+                      </p>
+                    </div>
+                  )}
+                </section>
+
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  <section className="feature-card flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
+                    <div data-scroll-reveal-icon className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#fff0df] text-[#c75d12]">
+                      <Clock3 size={21} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p data-scroll-reveal-item className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#a49a8b]">
+                        Up next
+                      </p>
+                      {nextEntry ? (
+                        <>
+                          <h2 data-scroll-reveal-item className="mt-2 truncate text-base font-semibold text-[#292823]">
+                            {nextEntry.course}
+                          </h2>
+                          <p data-scroll-reveal-item className="mt-1 truncate text-xs text-[#777064]">
+                            {DAYS[getDayIndex(nextEntry.day_name ?? nextEntry.day)]}
+                            {" · "}
+                            {PERIODS[Number(nextEntry.slot)]}
+                            {nextEntry.room ? ` · ${nextEntry.room}` : ""}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h2 data-scroll-reveal-item className="mt-2 text-base font-semibold text-[#292823]">
+                            No upcoming classes
+                          </h2>
+                          <p data-scroll-reveal-item className="mt-1 text-xs text-[#777064]">
+                            Generate a timetable to plan your week.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => openPage("Timetable")}
+                      aria-label="Open full calendar"
+                      data-scroll-reveal-icon
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#eee5d9] text-[#635c51] transition hover:border-[#ff8a24] hover:text-[#bf5a12]"
+                    >
+                      <ArrowUpRight size={16} />
+                    </button>
+                  </section>
+
+                  <section className="feature-card flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
+                    <div data-scroll-reveal-icon className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f1eee7] text-[#504a40]">
+                      <Check size={21} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p data-scroll-reveal-item className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#a49a8b]">
+                            Course setup
+                          </p>
+                          <p data-scroll-reveal-item className="mt-2 text-base font-semibold text-[#292823]">
+                            {completeCourses} of {courses.length} ready
+                          </p>
+                        </div>
+                        <span data-scroll-reveal-item className="text-sm font-semibold text-[#bf5a12]">
+                          {setupProgress}%
+                        </span>
+                      </div>
+                      <div
+                        data-scroll-reveal-item
+                        className="mt-3 h-2 overflow-hidden rounded-full bg-[#eee8de]"
+                        role="progressbar"
+                        aria-label="Course setup progress"
+                        aria-valuenow={setupProgress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          data-scroll-reveal-indicator
+                          className="h-full rounded-full bg-[#ff8a24] transition-[width] duration-500"
+                          style={{ width: `${setupProgress}%` }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => openPage("Courses")}
+                        data-scroll-reveal-item
+                        className="mt-2 text-[11px] font-medium text-[#736b5f] underline decoration-[#d1c5b4] underline-offset-2 hover:text-[#bf5a12]"
+                      >
+                        Review course details
+                      </button>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                  <section className="scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                    <SectionHeading
+                      title="Course catalogue"
+                      description="A quick look at the subjects in your plan."
+                      action={
+                        <button
+                          onClick={() => setActivePage("Courses")}
+                          data-scroll-reveal-item
+                          className="flex items-center gap-1.5 text-sm font-medium text-[#bf5a12] hover:text-[#8c3e08]"
+                        >
+                          Manage <ArrowRight size={15} />
+                        </button>
+                      }
+                    />
+
+                    <div className="space-y-2">
+                      {filteredCourses.slice(0, 5).map((course) => (
+                        <div
+                          key={course.id}
+                          className="flex items-center gap-4 rounded-xl px-3 py-3.5 transition hover:bg-[#fafaf8] sm:px-4"
+                        >
+                          <div
+                            data-scroll-reveal-icon
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-semibold"
+                            style={{
+                              color: course.color,
+                              backgroundColor: `${course.color}19`,
+                            }}
+                          >
+                            {initials(course.name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p data-scroll-reveal-item className="truncate text-sm font-semibold text-[#353535] sm:text-[15px]">
+                              {course.name}
+                            </p>
+                            <p data-scroll-reveal-item className="mt-1.5 truncate text-xs text-[#999999] sm:text-sm">
+                              {course.faculty} · {course.room}
+                            </p>
+                          </div>
+                          <span data-scroll-reveal-item className="shrink-0 rounded-lg bg-[#f5f4f1] px-3 py-2 text-xs font-medium text-[#777777]">
+                            {course.hours_per_week} periods
+                          </span>
+                        </div>
+                      ))}
+                      {filteredCourses.length === 0 && (
+                        <div className="rounded-xl bg-[#f8f5ef] px-4 py-7 text-center">
+                          <p
+                            data-scroll-reveal-item
+                            className="text-sm text-[#777064]"
+                          >
+                            No courses match your search.
+                          </p>
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            data-scroll-reveal-item
+                            className="mt-2 text-xs font-semibold text-[#bf5a12] hover:underline"
+                          >
+                            Clear search
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                    <SectionHeading
+                      title="Workspace status"
+                      description="Your current scheduling setup."
+                    />
+
+                    <div className="space-y-5">
+                      {[
+                        {
+                          label: "Courses configured",
+                          value: courses.length > 0,
+                          detail:
+                            courses.length > 0
+                              ? `${courses.length} courses added`
+                              : "Add your first course",
+                        },
+                        {
+                          label: "Faculty assignments",
+                          value: courses.every((course) =>
+                            course.faculty.trim()
+                          ),
+                          detail: "Faculty assigned to courses",
+                        },
+                        {
+                          label: "Classroom assignments",
+                          value: courses.every((course) =>
+                            course.room.trim()
+                          ),
+                          detail: "Rooms assigned to courses",
+                        },
+                        {
+                          label: "Timetable generated",
+                          value: generated && timetable.length > 0,
+                          detail:
+                            generated && timetable.length > 0
+                              ? "Schedule is available"
+                              : "Generate your weekly schedule",
+                        },
+                      ].map((item) => (
+                        <div
+                          key={item.label}
+                          className="flex items-center gap-3.5"
+                        >
+                          <div
+                            data-scroll-reveal-icon
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                              item.value
+                                ? "bg-[#fff0df] text-[#bf5a12]"
+                                : "bg-[#f4f2ed] text-[#a39c8d]"
+                            }`}
+                          >
+                            {item.value ? (
+                              <Check size={17} />
+                            ) : (
+                              <Clock3 size={17} />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p data-scroll-reveal-item className="text-sm font-medium text-[#414141]">
+                              {item.label}
+                            </p>
+                            <p data-scroll-reveal-item className="mt-1 text-xs leading-5 text-[#999999]">
+                              {item.detail}
+                            </p>
+                          </div>
+                          <span
+                            data-scroll-reveal-item
+                            className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                              item.value
+                                ? "text-[#bf5a12]"
+                                : "text-[#aaa49a]"
+                            }`}
+                          >
+                            {item.value ? "Ready" : "Pending"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setActivePage("Constraints")}
+                      data-scroll-reveal-item
+                      className="mt-7 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#e9e8e4] text-sm font-medium text-[#666666] transition hover:bg-[#f7f7f5]"
+                    >
+                      Review configuration
+                      <ArrowRight size={16} />
+                    </button>
+                  </section>
+                </div>
+              </div>
+            )}
+
+            {/* Full timetable */}
+            {activePage === "Timetable" && (
+              <section className="reveal overflow-hidden rounded-2xl border border-[#eae9e4] bg-white">
+                <div className="flex flex-col justify-between gap-4 border-b border-[#eeeeeb] p-6 sm:flex-row sm:items-center sm:px-8 sm:py-7">
+                  <div>
+                    <h2 className="text-lg font-semibold sm:text-xl">
+                      Monday — Friday
+                    </h2>
+                    <p className="mt-2 text-sm text-[#999999]">
+                      Six periods per day · Weekly academic plan
+                    </p>
+                  </div>
+                  <button
+                    onClick={generateTimetable}
+                    disabled={loading}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#242424] px-4 text-sm font-medium text-white transition hover:bg-[#414141] disabled:opacity-60"
+                  >
+                    {loading ? (
+                      <LoaderCircle size={16} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={16} />
+                    )}
+                    Regenerate
+                  </button>
+                </div>
+
+                {timetable.length > 0 ? (
+                  renderTimetable(false)
+                ) : (
+                  <div className="flex min-h-[360px] flex-col items-center justify-center px-6 py-14 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#f0edff] text-[#8375d7]">
+                      <CalendarDays size={28} />
+                    </div>
+                    <h3 className="mt-5 text-xl font-semibold">
+                      No timetable yet
+                    </h3>
+                    <p className="mt-3 max-w-md text-sm leading-7 text-[#999999]">
+                      Add your courses and generate a schedule to populate your
+                      weekly calendar.
+                    </p>
+                    <div className="mt-6 flex flex-wrap justify-center gap-3">
+                      <button
+                        onClick={() => setActivePage("Courses")}
+                        className="flex h-11 items-center gap-2 rounded-xl border border-[#e6e4df] px-4 text-sm font-medium hover:bg-[#f7f7f5]"
+                      >
+                        <BookOpen size={16} /> Manage courses
+                      </button>
+                      <button
+                        onClick={generateTimetable}
+                        disabled={loading}
+                        className="flex h-11 items-center gap-2 rounded-xl bg-[#242424] px-4 text-sm font-medium text-white disabled:opacity-60"
+                      >
+                        <WandSparkles size={16} /> Generate schedule
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#eeeeeb] px-6 py-5 sm:px-8">
+                  <span className="text-xs font-medium text-[#888888]">
+                    Course key
+                  </span>
+                  {courses.map((course) => (
+                    <div
+                      key={course.id}
+                      className="flex items-center gap-2 text-xs text-[#777777]"
+                    >
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: course.color }}
+                      />
+                      {course.name}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Courses */}
+            {activePage === "Courses" && (
+              <div className="reveal space-y-6">
+                <section className="overflow-hidden rounded-2xl border border-[#e8e8df] bg-white">
+                  <div className="flex flex-col justify-between gap-4 border-b border-[#eeeeeb] p-6 sm:flex-row sm:items-center sm:px-8 sm:py-7">
+                    <div>
+                      <h2 className="text-lg font-semibold sm:text-xl">
+                        Course catalogue
+                      </h2>
+                      <p className="mt-2 text-sm text-[#999999]">
+                        {courses.length} configured{" "}
+                        {courses.length === 1 ? "course" : "courses"} ·{" "}
+                        {totalHours} requested weekly periods
+                      </p>
+                    </div>
+                    <span className="w-fit rounded-lg border border-[#e8e8df] bg-[#fbfbf8] px-3 py-2 text-xs text-[#77786f]">
+                      {filteredCourses.length} shown
+                    </span>
+                  </div>
+
+                  <div className="border-b border-[#eeeeeb] p-5 sm:px-8">
+                    <div className="relative max-w-lg">
+                      <Search
+                        size={17}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#aaaaaa]"
+                      />
+                      <input
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search courses, faculty, or rooms..."
+                        className="h-12 w-full rounded-xl border border-[#e9e8e4] bg-[#fbfbfa] pl-11 pr-4 text-sm outline-none transition placeholder:text-[#b1b1b1] focus:border-[#c9c0ff] focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[800px] border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-[#eeeeeb] bg-[#fbfbfa]">
+                          {[
+                            "COURSE",
+                            "PERIODS / WEEK",
+                            "FACULTY",
+                            "CLASSROOM",
+                            "",
+                          ].map((heading, index) => (
+                            <th
+                              key={`${heading}-${index}`}
+                              className="px-5 py-4 text-[10px] font-semibold tracking-[0.13em] text-[#a0a0a0] sm:px-6"
+                            >
+                              {heading}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {filteredCourses.map((course) => (
+                          <tr
+                            key={course.id}
+                            className="border-b border-[#f0f0ed] last:border-b-0 hover:bg-[#fdfdfb]"
+                          >
+                            <td className="px-5 py-5 sm:px-6">
+                              <div className="flex items-center gap-3.5">
+                                <span
+                                  className="h-10 w-1.5 shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor: course.color,
+                                  }}
+                                />
+                                <input
+                                  aria-label="Course name"
+                                  value={course.name}
+                                  onChange={(event) =>
+                                    updateCourse(
+                                      course.id,
+                                      "name",
+                                      event.target.value
+                                    )
+                                  }
+                                  className="w-40 rounded-lg border border-transparent bg-transparent px-2 py-2 text-sm font-semibold outline-none focus:border-[#ded8ff] focus:bg-white"
+                                />
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-5 sm:px-6">
+                              <input
+                                aria-label="Periods per week"
+                                type="number"
+                                min={1}
+                                max={30}
+                                value={course.hours_per_week}
+                                onChange={(event) =>
+                                  updateCourse(
+                                    course.id,
+                                    "hours_per_week",
+                                    Math.max(1, Number(event.target.value))
+                                  )
+                                }
+                                className="h-10 w-24 rounded-lg border border-[#ecebe7] bg-white px-3 text-sm outline-none focus:border-[#c9c0ff]"
+                              />
+                            </td>
+
+                            <td className="px-5 py-5 sm:px-6">
+                              <input
+                                aria-label="Faculty name"
+                                value={course.faculty}
+                                onChange={(event) =>
+                                  updateCourse(
+                                    course.id,
+                                    "faculty",
+                                    event.target.value
+                                  )
+                                }
+                                className="h-10 w-36 rounded-lg border border-transparent bg-transparent px-2 text-sm text-[#777777] outline-none focus:border-[#ded8ff] focus:bg-white"
+                              />
+                            </td>
+
+                            <td className="px-5 py-5 sm:px-6">
+                              <input
+                                aria-label="Classroom"
+                                value={course.room}
+                                onChange={(event) =>
+                                  updateCourse(
+                                    course.id,
+                                    "room",
+                                    event.target.value
+                                  )
+                                }
+                                className="h-10 w-32 rounded-lg border border-transparent bg-transparent px-2 text-sm text-[#777777] outline-none focus:border-[#ded8ff] focus:bg-white"
+                              />
+                            </td>
+
+                            <td className="px-5 py-5 text-right sm:px-6">
+                              <button
+                                onClick={() => removeCourse(course.id)}
+                                aria-label={`Remove ${course.name}`}
+                                className="rounded-lg p-2.5 text-[#b4b4b4] transition hover:bg-[#fff0ee] hover:text-[#c85d4c]"
+                              >
+                                <X size={17} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                        {filteredCourses.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-6 py-16 text-center text-sm text-[#999999]"
+                            >
+                              No courses match your search.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col justify-between gap-3 border-t border-[#eeeeeb] bg-[#fbfbfa] px-6 py-5 sm:flex-row sm:items-center sm:px-8">
+                    <p className="text-xs text-[#999999]">
+                      Changes are used the next time you generate your
+                      timetable.
+                    </p>
+                    <button
+                      onClick={generateTimetable}
+                      disabled={loading}
+                      className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#242424] px-5 text-sm font-medium text-white disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <LoaderCircle size={16} className="animate-spin" />
+                      ) : (
+                        <WandSparkles size={16} />
+                      )}
+                      Generate timetable
+                    </button>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* Faculty */}
+            {activePage === "Faculty" && (
+              <div className="reveal">
+                <SectionHeading
+                  title="Faculty overview"
+                  description="Faculty members and their assigned courses."
+                  action={
+                    <span className="rounded-xl border border-[#e8e7e2] bg-white px-4 py-2.5 text-sm text-[#777777]">
+                      {filteredFacultyGroups.length} of {facultyGroups.length}{" "}
+                      members
+                    </span>
+                  }
+                />
+
+                {filteredFacultyGroups.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {filteredFacultyGroups.map(([faculty, assignedCourses]) => (
+                      <div
+                        key={faculty}
+                        className="rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f0edff] text-sm font-semibold text-[#8172d7]">
+                            {initials(faculty)}
+                          </div>
+                          <span className="rounded-lg bg-[#f5f4f1] px-3 py-2 text-xs text-[#888888]">
+                            {assignedCourses.length}{" "}
+                            {assignedCourses.length === 1
+                              ? "course"
+                              : "courses"}
+                          </span>
+                        </div>
+                        <h3 className="mt-5 text-base font-semibold text-[#333333]">
+                          {faculty || "Unassigned"}
+                        </h3>
+                        <p className="mt-1.5 text-xs text-[#999999]">
+                          Faculty member
+                        </p>
+                        <div className="mt-5 border-t border-[#eeeeeb] pt-4">
+                          <p data-scroll-reveal-item className="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#aaaaaa]">
+                            Assigned courses
+                          </p>
+                          <div className="space-y-3">
+                            {assignedCourses.map((course) => (
+                              <div
+                                key={course.id}
+                                className="flex items-center gap-3"
+                              >
+                                <span
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor: course.color,
+                                  }}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm text-[#666666]">
+                                  {course.name}
+                                </span>
+                                <span className="text-xs text-[#aaaaaa]">
+                                  {course.hours_per_week} periods
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
+                    {facultyGroups.length === 0 ? (
+                      "No faculty assignments available. Add courses to get started."
+                    ) : (
+                      <>
+                        No faculty match your search.{" "}
+                        <button
+                          onClick={() => setSearchQuery("")}
+                          className="font-semibold text-[#bf5a12] hover:underline"
+                        >
+                          Clear search
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rooms */}
+            {activePage === "Rooms" && (
+              <div className="reveal">
+                <SectionHeading
+                  title="Room directory"
+                  description="Classrooms and labs assigned to your courses."
+                  action={
+                    <span className="rounded-xl border border-[#e8e7e2] bg-white px-4 py-2.5 text-sm text-[#777777]">
+                      {filteredRoomGroups.length} of {roomGroups.length} rooms
+                    </span>
+                  }
+                />
+
+                {filteredRoomGroups.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {filteredRoomGroups.map(([room, assignedCourses]) => (
+                      <div
+                        key={room}
+                        className="rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div
+                            className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff0df] text-[#bf5a12]"
+                          >
+                            <DoorOpen size={21} strokeWidth={1.7} />
+                          </div>
+                          <span className="rounded-lg bg-[#f5f4f1] px-3 py-2 text-xs text-[#888888]">
+                            {assignedCourses.length}{" "}
+                            {assignedCourses.length === 1
+                              ? "course"
+                              : "courses"}
+                          </span>
+                        </div>
+
+                        <h3 className="mt-5 text-base font-semibold text-[#333333]">
+                          {room || "Unassigned"}
+                        </h3>
+                        <p className="mt-1.5 text-xs text-[#999999]">
+                          Classroom / laboratory
+                        </p>
+
+                        <div className="mt-5 border-t border-[#eeeeeb] pt-4">
+                          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#aaaaaa]">
+                            Assigned courses
+                          </p>
+                          <div className="space-y-3">
+                            {assignedCourses.map((course) => (
+                              <div
+                                key={course.id}
+                                className="flex items-center gap-3"
+                              >
+                                <span
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor: course.color,
+                                  }}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm text-[#666666]">
+                                  {course.name}
+                                </span>
+                                <span className="text-xs text-[#aaaaaa]">
+                                  {course.hours_per_week} periods
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
+                    {roomGroups.length === 0 ? (
+                      "No rooms available. Add courses with room assignments."
+                    ) : (
+                      <>
+                        No rooms match your search.{" "}
+                        <button
+                          onClick={() => setSearchQuery("")}
+                          className="font-semibold text-[#bf5a12] hover:underline"
+                        >
+                          Clear search
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Constraints */}
+            {activePage === "Constraints" && (
+              <div className="reveal grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                <section className="rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                  <div className="mb-7 flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f0edff] text-[#8172d7]">
+                      <Settings2 size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold sm:text-xl">
+                        Scheduler configuration
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-[#999999]">
+                        Current parameters sent to the timetable generator.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-[#e8e8df]">
+                    {[
+                      {
+                        label: "Scheduling days",
+                        value: "Monday – Friday",
+                        detail: "Sent as five days in the generate request",
+                      },
+                      {
+                        label: "Periods per day",
+                        value: "6 periods",
+                        detail: "Sent as slots_per_day: 6",
+                      },
+                      {
+                        label: "Courses configured",
+                        value: `${courses.length} courses`,
+                        detail: "Current editable course list",
+                      },
+                      {
+                        label: "Weekly periods requested",
+                        value: `${totalHours} periods`,
+                        detail: "Sum of configured weekly course periods",
+                      },
+                      {
+                        label: "Faculty assignments",
+                        value: `${uniqueFaculty} assigned`,
+                        detail: "Distinct faculty names on configured courses",
+                      },
+                      {
+                        label: "Room assignments",
+                        value: `${uniqueRooms} assigned`,
+                        detail: "Distinct rooms on configured courses",
+                      },
+                      {
+                        label: "API endpoint",
+                        value: API_ENDPOINT,
+                        detail: "Configured in the current frontend",
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className="flex flex-col justify-between gap-2 py-4 sm:flex-row sm:items-center sm:gap-6"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium text-[#44453f]">
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-5 text-[#8a8b83]">
+                            {item.detail}
+                          </p>
+                        </div>
+                        <span className="max-w-full break-all text-left text-[12px] font-medium text-[#4b4c45] sm:shrink-0 sm:text-right">
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <div className="space-y-4">
+                  <section className="rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff4e5] text-[#c28b43]">
+                      <Clock3 size={22} />
+                    </div>
+                    <h2 className="mt-4 text-base font-semibold">
+                      About scheduling rules
+                    </h2>
+                    <p className="mt-2 text-[12px] leading-6 text-[#85867f]">
+                      The backend requires non-empty, unique course names and
+                      faculty and room assignments, schedules each course for
+                      its requested weekly periods, and prevents simultaneous
+                      student-group, faculty, or room conflicts. It also caps
+                      each course&apos;s daily periods based on its weekly
+                      requirement and the number of scheduling days, and
+                      prioritizes earlier time slots. Faculty availability is
+                      not configured here.
+                    </p>
+                    <div className="mt-4 rounded-lg bg-[#faf9f6] px-3.5 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#92938b]">
+                        Period times in the current grid
+                      </p>
+                      <p className="mt-1.5 text-xs font-medium text-[#55564f]">
+                        {PERIODS.join(" · ")}
+                      </p>
+                    </div>
+                  </section>
+
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <footer className="mt-12 flex flex-col justify-between gap-3 border-t border-[#e8e7e2] pt-6 text-[11px] text-[#a1a09a] sm:mt-14 sm:flex-row sm:items-center">
+              <p>CHRONOS · ACADEMIC SCHEDULING WORKSPACE</p>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    generated ? "bg-[#53b6a0]" : "bg-[#d8b77b]"
+                  }`}
+                />
+                <span>
+                  {generated
+                    ? "Timetable generated"
+                    : "Ready to configure your week"}
+                </span>
+              </div>
+            </footer>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
