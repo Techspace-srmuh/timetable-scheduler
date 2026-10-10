@@ -20,6 +20,24 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Chronos assistant setup
+
+The sidebar assistant sends messages to the server-side `/api/assistant` route.
+To enable AI replies locally, add your OpenAI credentials to the ignored
+`.env.local` file in the project root:
+
+```dotenv
+OPENAI_API_KEY=your-server-side-api-key
+OPENAI_CHAT_MODEL=your-enabled-model-id
+```
+
+Use a model available to your OpenAI account. Do not add either variable with a
+`NEXT_PUBLIC_` prefix or send the API key to the browser. Restart the
+development server after changing `.env.local`. For a deployment, add both
+variables through that hosting provider's server-side environment settings.
+Until configured, the assistant reports that its AI provider is unavailable
+instead of generating placeholder replies.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

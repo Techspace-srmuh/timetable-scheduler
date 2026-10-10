@@ -280,7 +280,15 @@ export default function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [introVisible, setIntroVisible] = useState(true);
+  const [fluidSmokeReady, setFluidSmokeReady] = useState(false);
   const dismissIntro = useCallback(() => setIntroVisible(false), []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setFluidSmokeReady(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const updateClock = () => {
@@ -939,8 +947,15 @@ export default function Home() {
       <div
         aria-hidden={introVisible}
         inert={introVisible}
-        className="dashboard-shell flex min-h-screen gap-5 p-3 sm:gap-6 sm:p-5"
+        className="dashboard-shell relative isolate flex min-h-screen gap-5 p-3 sm:gap-6 sm:p-5"
       >
+        {fluidSmokeReady && (
+          <div
+            data-aifx="fluid-smoke"
+            className="absolute inset-0 -z-10 pointer-events-none"
+            aria-hidden="true"
+          />
+        )}
         {/* Desktop sidebar */}
         <aside className="desktop-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[240px] shrink-0 flex-col overflow-y-auto rounded-[26px] bg-[#252523] px-4 py-5 text-white shadow-[0_20px_60px_rgba(31,29,25,0.14)] lg:flex">
           <div className="mb-9 flex items-center gap-3 px-2">
@@ -993,7 +1008,7 @@ export default function Home() {
 
           <SidebarRobot />
 
-          <div className="mt-5 flex items-center gap-3 border-t border-white/10 px-2 pt-5">
+          <div className="mt-auto flex items-center gap-3 border-t border-white/10 px-2 pt-5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">
               SW
             </div>
