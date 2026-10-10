@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { DotLottie } from "@lottiefiles/dotlottie-react";
 import { MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { createPortal } from "react-dom";
+import type { AssistantContext } from "./scheduling/types";
 import {
   useCallback,
   useEffect,
@@ -71,7 +72,13 @@ function createMessage(
   };
 }
 
-export default function SidebarRobot() {
+export default function SidebarRobot({
+  context,
+  onOpenCalendar,
+}: {
+  context: AssistantContext;
+  onOpenCalendar: () => void;
+}) {
   const slotRef = useRef<HTMLDivElement>(null);
   const lookRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -363,6 +370,7 @@ export default function SidebarRobot() {
             role,
             content: message,
           })),
+          context,
         }),
       });
 
@@ -407,6 +415,15 @@ export default function SidebarRobot() {
       setError(message);
     }
   };
+
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const showChangePreviewButton =
+    latestUserMessage !== undefined &&
+    /\b(move|change|adjust|reschedul|find a time|avoid my|switch)\b/i.test(
+      latestUserMessage.content
+    );
 
   return (
     <div ref={slotRef} className="sidebar-robot-slot">
@@ -525,6 +542,16 @@ export default function SidebarRobot() {
               {storageError}
             </p>
           )}
+
+          {showChangePreviewButton && (
+              <button
+                type="button"
+                onClick={onOpenCalendar}
+                className="mx-3 mb-2 flex min-h-9 items-center justify-center rounded-lg border border-[#e8e1d6] px-3 text-xs font-semibold text-[#514c43] hover:bg-[#f8f5ef]"
+              >
+                Open Calendar change preview
+              </button>
+            )}
 
           <form className="robot-chat-form" onSubmit={sendMessage}>
             <label className="sr-only" htmlFor="robot-chat-input">

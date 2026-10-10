@@ -8,18 +8,38 @@ import { useGSAP } from "@gsap/react";
 import type { Controller as ScrollMagicController } from "scrollmagic";
 import StartupIntro from "./startup-intro";
 import SidebarRobot from "./sidebar-robot";
+import PreferencesPanel from "./scheduling/preferences-panel";
+import WorkloadCard from "./scheduling/workload-card";
+import { createCalendarIcs } from "./scheduling/insights";
+import {
+  DAYS,
+  DEFAULT_PREFERENCES,
+  PERIODS,
+  PREFERENCES_STORAGE_KEY,
+  COURSES_STORAGE_KEY,
+  TIMETABLE_STORAGE_KEY,
+  isSchedulingPreferences,
+  type AssistantContext,
+  type Course,
+  type ScheduleMove,
+  type SchedulingPreferences,
+  type TimetableEntry,
+} from "./scheduling/types";
 import {
   Activity,
+  AlertCircle,
   ArrowRight,
   ArrowUpRight,
   Bell,
   BookOpen,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
   DoorOpen,
   GraduationCap,
   LayoutDashboard,
@@ -35,24 +55,6 @@ import {
 } from "lucide-react";
 
 gsap.registerPlugin(useGSAP);
-
-type Course = {
-  id: string;
-  name: string;
-  hours_per_week: number;
-  faculty: string;
-  room: string;
-  color: string;
-};
-
-type TimetableEntry = {
-  course: string;
-  faculty?: string;
-  room?: string;
-  day: number | string;
-  slot: number;
-  day_name?: string;
-};
 
 const INITIAL_COURSES: Course[] = [
   {
@@ -97,18 +99,102 @@ const INITIAL_COURSES: Course[] = [
   },
 ];
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-
-const PERIODS = [
-  "09:00",
-  "10:00",
-  "11:15",
-  "12:15",
-  "14:00",
-  "15:00",
-];
-
 const API_ENDPOINT = "http://localhost:8000/generate";
+
+type GenerationConflict = {
+  courses: string[];
+  constraints: string[];
+  suggestions: string[];
+};
+
+type PendingSchedule = {
+  timetable: TimetableEntry[];
+  fitSummary: string[];
+  move: ScheduleMove | null;
+  changes: string[];
+};
+
+type CourseField = "name" | "hours_per_week" | "faculty" | "room";
+type CourseFieldErrors = Partial<Record<CourseField, string>>;
+
+function getCourseFieldErrors(courses: Course[]): Record<string, CourseFieldErrors> {
+  const nameCounts = new Map<string, number>();
+  courses.forEach((course) => {
+    const name = course.name.trim().toLocaleLowerCase();
+    if (name) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  });
+
+  return Object.fromEntries(
+    courses.map((course) => {
+      const errors: CourseFieldErrors = {};
+      const normalizedName = course.name.trim().toLocaleLowerCase();
+      if (!normalizedName) {
+        errors.name = "Enter a course name.";
+      } else if ((nameCounts.get(normalizedName) ?? 0) > 1) {
+        errors.name = "Course names must be unique.";
+      }
+      if (
+        !Number.isInteger(course.hours_per_week) ||
+        course.hours_per_week < 1 ||
+        course.hours_per_week > 30
+      ) {
+        errors.hours_per_week = "Enter 1–30 periods per week.";
+      }
+      if (!course.faculty.trim()) errors.faculty = "Assign a faculty member.";
+      if (!course.room.trim()) errors.room = "Assign a room.";
+      return [course.id, errors];
+    })
+  );
+}
+
+function isCourse(value: unknown): value is Course {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "hours_per_week" in value &&
+    typeof value.hours_per_week === "number" &&
+    Number.isInteger(value.hours_per_week) &&
+    value.hours_per_week >= 1 &&
+    value.hours_per_week <= 30 &&
+    "faculty" in value &&
+    typeof value.faculty === "string" &&
+    "room" in value &&
+    typeof value.room === "string" &&
+    "color" in value &&
+    typeof value.color === "string"
+  );
+}
+
+function isTimetableEntry(value: unknown): value is TimetableEntry {
+  const dayIsValid =
+    typeof value === "object" &&
+    value !== null &&
+    "day" in value &&
+    (typeof value.day === "number"
+      ? Number.isInteger(value.day) && value.day >= 0 && value.day < DAYS.length
+      : typeof value.day === "string" && DAYS.includes(value.day));
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "course" in value &&
+    typeof value.course === "string" &&
+    dayIsValid &&
+    "slot" in value &&
+    typeof value.slot === "number" &&
+    Number.isInteger(value.slot) &&
+    value.slot >= 0 &&
+    value.slot < PERIODS.length &&
+    (!("day_name" in value) ||
+      (typeof value.day_name === "string" && DAYS.includes(value.day_name))) &&
+    (!("faculty" in value) || typeof value.faculty === "string") &&
+    (!("room" in value) || typeof value.room === "string") &&
+    (!("day_name" in value) || typeof value.day_name === "string")
+  );
+}
 
 const NAVIGATION = [
   {
@@ -252,7 +338,7 @@ function SectionHeading({
         {description && (
           <p
             data-scroll-reveal-item
-            className="mt-2 text-sm leading-6 text-[#888888] sm:text-[15px]"
+            className="mt-2 text-sm leading-6 text-[#635d53] sm:text-[15px]"
           >
             {description}
           </p>
@@ -265,11 +351,29 @@ function SectionHeading({
 
 export default function Home() {
   const root = useRef<HTMLDivElement>(null);
+  const pageContentRef = useRef<HTMLDivElement>(null);
+  const pageTransitionOrigin = useRef<{ x: number; y: number } | null>(null);
+  const shouldAnimatePageOpen = useRef(false);
 
   const [activePage, setActivePage] = useState("Overview");
   const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
   const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
+  const [preferences, setPreferences] =
+    useState<SchedulingPreferences>(DEFAULT_PREFERENCES);
+  const [pendingSchedule, setPendingSchedule] =
+    useState<PendingSchedule | null>(null);
+  const [fitSummary, setFitSummary] = useState<string[]>([]);
+  const [generationConflict, setGenerationConflict] =
+    useState<GenerationConflict | null>(null);
+  const [repairSourceIndex, setRepairSourceIndex] = useState(0);
+  const [repairTargetDay, setRepairTargetDay] = useState(0);
+  const [repairTargetSlot, setRepairTargetSlot] = useState(0);
+  const [storageReady, setStorageReady] = useState(false);
+  const [storageError, setStorageError] = useState("");
+  const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  const [preferencesSaved, setPreferencesSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [generationReviewOpen, setGenerationReviewOpen] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -281,6 +385,7 @@ export default function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [introVisible, setIntroVisible] = useState(true);
   const [fluidSmokeReady, setFluidSmokeReady] = useState(false);
+  const generationInProgress = useRef(false);
   const dismissIntro = useCallback(() => setIntroVisible(false), []);
 
   useEffect(() => {
@@ -289,6 +394,68 @@ export default function Home() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const savedPreferences = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+        const savedCourses = localStorage.getItem(COURSES_STORAGE_KEY);
+        const savedTimetable = localStorage.getItem(TIMETABLE_STORAGE_KEY);
+
+        if (savedPreferences) {
+          const parsed: unknown = JSON.parse(savedPreferences);
+          if (!isSchedulingPreferences(parsed)) {
+            throw new Error("Saved scheduling preferences are invalid.");
+          }
+          setPreferences(parsed);
+        }
+        if (savedCourses) {
+          const parsed: unknown = JSON.parse(savedCourses);
+          if (!Array.isArray(parsed) || !parsed.every(isCourse)) {
+            throw new Error("Saved courses are invalid.");
+          }
+          setCourses(parsed);
+        }
+        if (savedTimetable) {
+          const parsed: unknown = JSON.parse(savedTimetable);
+          if (!Array.isArray(parsed) || !parsed.every(isTimetableEntry)) {
+            throw new Error("Saved timetable is invalid.");
+          }
+          setTimetable(parsed);
+          setGenerated(parsed.length > 0);
+        }
+      } catch (caughtError) {
+        setStorageLoadFailed(true);
+        setStorageError(
+          caughtError instanceof Error
+            ? `${caughtError.message} Please correct or clear the saved data before continuing.`
+            : "Saved planner data could not be loaded."
+        );
+      } finally {
+        setStorageReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady || storageLoadFailed) return;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+        localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(courses));
+        localStorage.setItem(TIMETABLE_STORAGE_KEY, JSON.stringify(timetable));
+        setPreferencesSaved(true);
+        setStorageError("");
+      } catch {
+        setPreferencesSaved(false);
+        setStorageError(
+          "Planner settings could not be saved in this browser. Check available storage and try again."
+        );
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [courses, preferences, storageLoadFailed, storageReady, timetable]);
 
   useEffect(() => {
     const updateClock = () => {
@@ -305,21 +472,53 @@ export default function Home() {
   useGSAP(
     () => {
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        shouldAnimatePageOpen.current = false;
+        pageTransitionOrigin.current = null;
         return;
       }
 
-      gsap.fromTo(
-        ".reveal",
-        { y: 16, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.55,
-          stagger: 0.065,
-          ease: "power2.out",
-          clearProps: "all",
-        }
-      );
+      const pageContent = pageContentRef.current;
+      if (pageContent && shouldAnimatePageOpen.current) {
+        const origin = pageTransitionOrigin.current;
+        gsap.fromTo(
+          pageContent,
+          {
+            autoAlpha: 0.35,
+            scale: 0.975,
+            transformOrigin: origin
+              ? `${origin.x}px ${origin.y}px`
+              : "50% 50%",
+          },
+          {
+            autoAlpha: 1,
+            scale: 1,
+            duration: 0.48,
+            ease: "power3.out",
+            clearProps: "opacity,visibility,transform,transformOrigin",
+            onComplete: () => {
+              pageContent.style.removeProperty("transform-origin");
+              shouldAnimatePageOpen.current = false;
+              pageTransitionOrigin.current = null;
+            },
+          }
+        );
+      }
+
+      const revealTargets = root.current?.querySelectorAll(".reveal");
+      if (revealTargets?.length) {
+        gsap.fromTo(
+          revealTargets,
+          { y: 16, opacity: 0 },
+          {
+            y: 0,
+            opacity: 1,
+            duration: 0.55,
+            stagger: 0.065,
+            ease: "power2.out",
+            clearProps: "all",
+          }
+        );
+      }
     },
     { scope: root, dependencies: [activePage] }
   );
@@ -586,6 +785,7 @@ export default function Home() {
   }, [activePage]);
 
   function updateCourse(id: string, key: keyof Course, value: string | number) {
+    setPendingSchedule(null);
     setCourses((current) =>
       current.map((course) =>
         course.id === id ? { ...course, [key]: value } : course
@@ -594,6 +794,7 @@ export default function Home() {
   }
 
   function addCourse() {
+    setPendingSchedule(null);
     const newCourse: Course = {
       id: `${Date.now()}`,
       name: "New Course",
@@ -609,21 +810,190 @@ export default function Home() {
   }
 
   function removeCourse(id: string) {
+    setPendingSchedule(null);
     setCourses((current) => current.filter((course) => course.id !== id));
     setNotice("Course removed.");
     setError("");
   }
 
-  async function generateTimetable() {
+  function openGenerationReview() {
+    setError("");
+    setNotice("");
+    setGenerationConflict(null);
+    setGenerationReviewOpen(true);
+  }
+
+  function renderSetupGuide() {
+    return (
+      <section
+        aria-labelledby="setup-progress-title"
+        className="mx-auto mt-6 w-full max-w-2xl rounded-2xl border border-white/15 bg-white/[0.06] p-4 text-left sm:p-5"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h4 id="setup-progress-title" className="text-sm font-semibold">
+            Setup progress
+          </h4>
+          <span className="text-xs text-white/75">
+            {coursesReady ? "Courses ready" : `${completeCourses} of ${courses.length} courses ready`}
+          </span>
+        </div>
+        <ol className="mt-4 grid gap-3 sm:grid-cols-2">
+          <li className="flex min-w-0 items-start gap-2.5">
+            <CheckCircle2
+              size={17}
+              className={`mt-0.5 shrink-0 ${coursesReady ? "text-[#ff9a43]" : "text-white/45"}`}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-white">
+                Courses and assignments
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-white/75">
+                {coursesReady
+                  ? `${courses.length} courses have names, periods, faculty, and rooms.`
+                  : "Add courses and complete each course’s periods, faculty, and room."}
+              </p>
+              <button
+                type="button"
+                onClick={() => openPage("Courses")}
+                className="mt-1 text-xs font-semibold text-[#ffb166] underline decoration-white/35 underline-offset-2 hover:text-white"
+              >
+                {coursesReady ? "Edit courses" : "Configure courses"}
+              </button>
+            </div>
+          </li>
+          <li className="flex min-w-0 items-start gap-2.5">
+            <CheckCircle2
+              size={17}
+              className={`mt-0.5 shrink-0 ${preferencesCustomized ? "text-[#ff9a43]" : "text-white/45"}`}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-white">
+                Scheduling preferences
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-white/75">
+                {preferencesCustomized
+                  ? "Your availability and preferences are saved in this browser."
+                  : "Optional: set unavailable times or preferred class windows."}
+              </p>
+              <button
+                type="button"
+                onClick={() => openPage("Constraints")}
+                className="mt-1 text-xs font-semibold text-[#ffb166] underline decoration-white/35 underline-offset-2 hover:text-white"
+              >
+                Edit preferences
+              </button>
+            </div>
+          </li>
+        </ol>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+          <p className="text-xs leading-5 text-white/75">
+            {generationReady
+              ? "Your setup is ready. Review it before creating a schedule preview."
+              : "Complete course details and resolve any availability conflicts before generating."}
+          </p>
+          <button
+            type="button"
+            onClick={openGenerationReview}
+            className="min-h-10 rounded-xl bg-[#ff8a24] px-3.5 text-xs font-semibold text-[#252523] transition hover:bg-[#ffa14d] focus-visible:outline-offset-4"
+          >
+            Review setup
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function describeScheduleChanges(
+    previous: TimetableEntry[],
+    next: TimetableEntry[]
+  ): string[] {
+    if (previous.length === 0) {
+      return ["This is a new schedule; your current courses are not changed."];
+    }
+    const unmatched = [...previous];
+    const changes: string[] = [];
+    for (const entry of next) {
+      const previousIndex = unmatched.findIndex(
+        (item) =>
+          item.course === entry.course &&
+          getDayIndex(item.day_name ?? item.day) ===
+            getDayIndex(entry.day_name ?? entry.day) &&
+          Number(item.slot) === Number(entry.slot) &&
+          (item.faculty ?? "") === (entry.faculty ?? "") &&
+          (item.room ?? "") === (entry.room ?? "")
+      );
+      if (previousIndex >= 0) {
+        unmatched.splice(previousIndex, 1);
+      } else {
+        const sourceIndex = unmatched.findIndex(
+          (item) => item.course === entry.course
+        );
+        const source =
+          sourceIndex >= 0 ? unmatched.splice(sourceIndex, 1)[0] : null;
+        const from = source
+          ? `${DAYS[getDayIndex(source.day_name ?? source.day)]} ${PERIODS[Number(source.slot)]}`
+          : "new class";
+        const to = `${DAYS[getDayIndex(entry.day_name ?? entry.day)]} ${PERIODS[Number(entry.slot)]}`;
+        const assignment = [
+          source && source.faculty !== entry.faculty
+            ? `faculty ${source.faculty ?? "unassigned"} → ${entry.faculty ?? "unassigned"}`
+            : entry.faculty
+              ? `faculty ${entry.faculty}`
+              : "",
+          source && source.room !== entry.room
+            ? `room ${source.room ?? "unassigned"} → ${entry.room ?? "unassigned"}`
+            : entry.room
+              ? `room ${entry.room}`
+              : "",
+        ]
+          .filter(Boolean)
+          .join(", ");
+        changes.push(
+          `${entry.course}: ${from} → ${to}${assignment ? ` · ${assignment}` : ""}`
+        );
+      }
+    }
+    for (const entry of unmatched) {
+      changes.push(
+        `${entry.course} removed from ${DAYS[getDayIndex(entry.day_name ?? entry.day)]} ${PERIODS[Number(entry.slot)]}`
+      );
+    }
+    return changes.length
+      ? changes.slice(0, 8)
+      : ["The schedule remains unchanged; preferences are still satisfied."];
+  }
+
+  async function generateTimetable(move: ScheduleMove | null = null) {
+    if (generationInProgress.current) return;
     if (courses.length === 0) {
       setError("Add at least one course before generating a timetable.");
       setNotice("");
       return;
     }
+    if (!move && !generationReady) {
+      setGenerationReviewOpen(true);
+      setError(
+        "Finish the highlighted course details or availability settings before generating."
+      );
+      setNotice("");
+      return;
+    }
+    if (
+      move &&
+      move.from_day === move.to_day &&
+      move.from_slot === move.to_slot
+    ) {
+      setError("Choose a different day or period for the class move preview.");
+      setNotice("");
+      return;
+    }
 
+    generationInProgress.current = true;
     setLoading(true);
     setError("");
     setNotice("");
+    setGenerationConflict(null);
+    setGenerationReviewOpen(false);
 
     try {
       const response = await fetch(API_ENDPOINT, {
@@ -640,14 +1010,10 @@ export default function Home() {
           })),
           days: 5,
           slots_per_day: 6,
+          preferences,
+          move,
         }),
       });
-
-      if (!response.ok) {
-        throw new Error(
-          `The scheduling server returned an error (${response.status}).`
-        );
-      }
 
       const data: unknown = await response.json();
 
@@ -660,7 +1026,54 @@ export default function Home() {
         throw new Error("The scheduler returned an invalid response.");
       }
 
+      if (!response.ok) {
+        const detail =
+          "detail" in data && Array.isArray(data.detail)
+            ? data.detail
+                .map((item) =>
+                  typeof item === "object" &&
+                  item !== null &&
+                  "msg" in item &&
+                  typeof item.msg === "string"
+                    ? item.msg
+                    : ""
+                )
+                .filter(Boolean)
+                .join(" ")
+            : "";
+        throw new Error(
+          detail || `The scheduling server returned an error (${response.status}).`
+        );
+      }
+
       if (data.status !== "success") {
+        if (
+          "conflict" in data &&
+          typeof data.conflict === "object" &&
+          data.conflict !== null
+        ) {
+          const conflict = data.conflict;
+          setGenerationConflict({
+            courses:
+              "courses" in conflict && Array.isArray(conflict.courses)
+                ? conflict.courses.filter(
+                    (course): course is string => typeof course === "string"
+                  )
+                : [],
+            constraints:
+              "constraints" in conflict && Array.isArray(conflict.constraints)
+                ? conflict.constraints.filter(
+                    (item): item is string => typeof item === "string"
+                  )
+                : [],
+            suggestions:
+              "suggestions" in conflict && Array.isArray(conflict.suggestions)
+                ? conflict.suggestions.filter(
+                    (item): item is string => typeof item === "string"
+                  )
+                : [],
+          });
+        }
         throw new Error(
           typeof data.message === "string"
             ? data.message
@@ -668,14 +1081,35 @@ export default function Home() {
         );
       }
 
-      if (!("timetable" in data) || !Array.isArray(data.timetable)) {
+      if (
+        !("timetable" in data) ||
+        !Array.isArray(data.timetable) ||
+        !data.timetable.every(isTimetableEntry)
+      ) {
         throw new Error("The server response did not contain a valid timetable.");
       }
 
-      setTimetable(data.timetable);
-      setGenerated(true);
-      setLastGeneratedAt(new Date());
-      setNotice("Your timetable has been generated successfully.");
+      const candidate = data.timetable;
+      const summary =
+        "fit_summary" in data && Array.isArray(data.fit_summary)
+          ? data.fit_summary.filter(
+              (item): item is string => typeof item === "string"
+            )
+          : [];
+      setPendingSchedule({
+        timetable: candidate,
+        fitSummary: summary,
+        move,
+        changes: describeScheduleChanges(timetable, candidate),
+      });
+      setGenerationConflict(null);
+      setNotice(
+        `Preview ready: ${candidate.length} class ${candidate.length === 1 ? "period" : "periods"} placed. ${
+          timetable.length > 0
+            ? "Your current timetable stays in place until you replace it."
+            : "Review it before adding it to your calendar."
+        }`
+      );
       setActivePage("Timetable");
     } catch (err) {
       const message =
@@ -688,7 +1122,42 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+      generationInProgress.current = false;
     }
+  }
+
+  function applyPendingSchedule() {
+    if (!pendingSchedule) return;
+    setTimetable(pendingSchedule.timetable);
+    setFitSummary(pendingSchedule.fitSummary);
+    setGenerated(true);
+    setLastGeneratedAt(new Date());
+    setNotice(
+      pendingSchedule.move
+        ? `${pendingSchedule.move.course} moved to ${DAYS[pendingSchedule.move.to_day]} at ${PERIODS[pendingSchedule.move.to_slot]}.`
+        : "Your reviewed timetable has been applied."
+    );
+    setPendingSchedule(null);
+    setGenerationConflict(null);
+    setError("");
+    setNotice(
+      `Timetable updated with ${pendingSchedule.timetable.length} scheduled ${
+        pendingSchedule.timetable.length === 1 ? "period" : "periods"
+      }.`
+    );
+  }
+
+  function downloadCalendar() {
+    if (timetable.length === 0) return;
+    const file = new Blob([createCalendarIcs(timetable)], {
+      type: "text/calendar;charset=utf-8",
+    });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "chronos-timetable.ics";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function courseColor(name: string) {
@@ -786,12 +1255,53 @@ export default function Home() {
       (entry) => getDayIndex(entry.day_name ?? entry.day) > selectedDayIndex
     ) ??
     matchingTimetable[0];
+  const courseFieldErrors = getCourseFieldErrors(courses);
   const completeCourses = courses.filter(
-    (course) => course.name.trim() && course.faculty.trim() && course.room.trim()
+    (course) => Object.keys(courseFieldErrors[course.id] ?? {}).length === 0
   ).length;
+  const coursesReady = courses.length > 0 && completeCourses === courses.length;
   const setupProgress = courses.length
     ? Math.round((completeCourses / courses.length) * 100)
     : 0;
+  const blockedSlots = new Set<string>();
+  preferences.unavailable_days.forEach((day) => {
+    PERIODS.forEach((_, slot) => blockedSlots.add(`${day}-${slot}`));
+  });
+  preferences.unavailable_ranges.forEach((range) => {
+    for (let slot = range.start_slot; slot <= range.end_slot; slot += 1) {
+      blockedSlots.add(`${range.day}-${slot}`);
+    }
+  });
+  const openPeriods = DAYS.length * PERIODS.length - blockedSlots.size;
+  const generationReadinessIssues = [
+    totalHours > DAYS.length * PERIODS.length
+      ? `Courses request ${totalHours} weekly periods, but the timetable has only ${DAYS.length * PERIODS.length} slots.`
+      : "",
+    ...courses
+      .filter(
+        (course) =>
+          Number.isInteger(course.hours_per_week) &&
+          course.hours_per_week > openPeriods
+      )
+      .map(
+        (course) =>
+          `${course.name || "A course"} needs ${course.hours_per_week} periods, but only ${openPeriods} remain after required unavailable times.`
+      ),
+  ].filter(Boolean);
+  const generationReady =
+    coursesReady && generationReadinessIssues.length === 0;
+  const preferencesCustomized =
+    preferences.unavailable_days.length > 0 ||
+    preferences.unavailable_ranges.length > 0 ||
+    preferences.preferred_periods.length > 0 ||
+    preferences.preferred_earliest_start !==
+      DEFAULT_PREFERENCES.preferred_earliest_start ||
+    preferences.preferred_latest_finish !==
+      DEFAULT_PREFERENCES.preferred_latest_finish ||
+    preferences.preferred_break_slot !==
+      DEFAULT_PREFERENCES.preferred_break_slot ||
+    preferences.compact_days !== DEFAULT_PREFERENCES.compact_days ||
+    preferences.minimize_gaps !== DEFAULT_PREFERENCES.minimize_gaps;
   const currentMinuteOfDay = currentTime
     ? currentTime.getHours() * 60 + currentTime.getMinutes()
     : -1;
@@ -799,6 +1309,25 @@ export default function Home() {
     isShowingToday && currentMinuteOfDay >= 9 * 60 && currentMinuteOfDay <= 16 * 60
       ? ((currentMinuteOfDay - 9 * 60) / (7 * 60)) * 100
       : null;
+  const assistantContext: AssistantContext = {
+    courses: courses.map(({ name, hours_per_week, faculty, room }) => ({
+      name,
+      hours_per_week,
+      faculty,
+      room,
+    })),
+    timetable,
+    preferences,
+    generationConflict: generationConflict
+      ? {
+          message: error,
+          courses: generationConflict.courses,
+          constraints: generationConflict.constraints,
+          suggestions: generationConflict.suggestions,
+        }
+      : null,
+    fitSummary,
+  };
 
   function shiftSelectedDate(offset: number) {
     setSelectedDate((current) => {
@@ -808,7 +1337,19 @@ export default function Home() {
     });
   }
 
-  function openPage(page: string) {
+  function openPage(page: string, trigger?: HTMLElement) {
+    if (page !== activePage) {
+      shouldAnimatePageOpen.current = true;
+      const contentBounds = pageContentRef.current?.getBoundingClientRect();
+      const triggerBounds = trigger?.getBoundingClientRect();
+      pageTransitionOrigin.current =
+        contentBounds && triggerBounds
+          ? {
+              x: triggerBounds.left + triggerBounds.width / 2 - contentBounds.left,
+              y: triggerBounds.top + triggerBounds.height / 2 - contentBounds.top,
+            }
+          : null;
+    }
     setActivePage(page);
     setError("");
     setNotice("");
@@ -816,7 +1357,15 @@ export default function Home() {
     setProfileOpen(false);
   }
 
-  function renderTimetable(compact = false) {
+  function renderTimetable(
+    compact = false,
+    schedule: TimetableEntry[] = timetable
+  ) {
+    const scheduleEntries = schedule.filter((entry) =>
+      `${entry.course} ${entry.faculty ?? ""} ${entry.room ?? ""}`
+        .toLowerCase()
+        .includes(searchQuery.trim().toLowerCase())
+    );
     const minWidth = compact ? "900px" : "1120px";
 
     return (
@@ -864,7 +1413,7 @@ export default function Home() {
                 </div>
 
                 {DAYS.map((day, dayIndex) => {
-                  const entry = matchingTimetable.find(
+                  const entry = scheduleEntries.find(
                     (item) =>
                       getDayIndex(item.day_name ?? item.day) === dayIndex &&
                       Number(item.slot) === slotIndex
@@ -982,8 +1531,8 @@ export default function Home() {
               return (
                 <button
                   key={item.name}
-                  onClick={() => {
-                    openPage(item.name);
+                  onClick={(event) => {
+                    openPage(item.name, event.currentTarget);
                   }}
                   aria-current={active ? "page" : undefined}
                   className={`group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[13px] transition-colors ${
@@ -1006,7 +1555,10 @@ export default function Home() {
             })}
           </nav>
 
-          <SidebarRobot />
+          <SidebarRobot
+            context={assistantContext}
+            onOpenCalendar={() => openPage("Timetable")}
+          />
 
           <div className="mt-auto flex items-center gap-3 border-t border-white/10 px-2 pt-5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">
@@ -1139,6 +1691,18 @@ export default function Home() {
                     after you generate a timetable.
                   </p>
                 )}
+                {pendingSchedule && (
+                  <p className="mt-3 rounded-xl bg-[#fff5eb] p-3 text-xs leading-5 text-[#635d53]">
+                    A schedule preview is waiting for your review on Calendar.
+                  </p>
+                )}
+                <div className="mt-3 rounded-xl border border-[#e8e1d6] p-3">
+                  <p className="text-xs font-semibold">Reminders</p>
+                  <p className="mt-1 text-[11px] leading-5 text-[#635d53]">
+                    Automatic class reminders are not supported while Chronos is
+                    closed. Export the timetable to a calendar app for reminders.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -1180,8 +1744,8 @@ export default function Home() {
                 return (
                   <button
                     key={item.name}
-                    onClick={() => {
-                      openPage(item.name);
+                    onClick={(event) => {
+                      openPage(item.name, event.currentTarget);
                     }}
                     aria-current={active ? "page" : undefined}
                     className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-2 text-[9px] font-medium transition-colors ${
@@ -1197,7 +1761,10 @@ export default function Home() {
               })}
           </nav>
 
-          <div className="mx-auto w-full max-w-[1440px] px-1 pb-24 pt-7 sm:px-2 sm:pb-28 sm:pt-9 lg:px-4 lg:pb-10 lg:pt-9">
+          <div
+            ref={pageContentRef}
+            className="mx-auto w-full max-w-[1440px] px-1 pb-24 pt-7 sm:px-2 sm:pb-28 sm:pt-9 lg:px-4 lg:pb-10 lg:pt-9"
+          >
             <label className="relative mb-5 block md:hidden">
               <Search
                 size={16}
@@ -1214,8 +1781,8 @@ export default function Home() {
             </label>
 
             {/* Page heading */}
-            <div className="reveal mb-8 flex flex-col justify-between gap-5 border-b border-[#e7dfd3] pb-7 sm:mb-8 sm:flex-row sm:items-end">
-              <div>
+            <div className="page-heading mb-8 flex flex-col justify-between gap-5 border-b border-[#e7dfd3] pb-7 sm:mb-8 sm:flex-row sm:items-end">
+              <div className="page-heading-copy">
                 <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#bf5a12]">
                   {activePage === "Overview"
                     ? "YOUR PERSONAL PLANNER"
@@ -1239,7 +1806,13 @@ export default function Home() {
                 activePage === "Courses") && (
                 <button
                   onClick={
-                    activePage === "Courses" ? addCourse : generateTimetable
+                    activePage === "Courses"
+                      ? addCourse
+                      : activePage === "Overview" &&
+                          timetable.length === 0 &&
+                          !coursesReady
+                        ? () => openPage("Courses")
+                        : () => generateTimetable()
                   }
                   disabled={activePage !== "Courses" && loading}
                   className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#ff8a24] px-4 text-[12px] font-semibold text-[#252523] shadow-[0_5px_15px_rgba(224,109,28,0.2)] transition hover:-translate-y-0.5 hover:bg-[#ffa14d] disabled:cursor-not-allowed disabled:opacity-60"
@@ -1248,6 +1821,10 @@ export default function Home() {
                     <Plus size={15} />
                   ) : loading ? (
                     <LoaderCircle size={15} className="animate-spin" />
+                  ) : activePage === "Overview" &&
+                    timetable.length === 0 &&
+                    !coursesReady ? (
+                    <BookOpen size={15} />
                   ) : (
                     <WandSparkles size={15} />
                   )}
@@ -1256,8 +1833,12 @@ export default function Home() {
                     : loading
                       ? "Generating..."
                       : activePage === "Overview"
+                      ? timetable.length > 0
                         ? "Add schedule"
-                        : "Generate timetable"}
+                        : coursesReady
+                          ? "Generate timetable"
+                          : "Configure courses"
+                      : "Generate timetable"}
                 </button>
               )}
             </div>
@@ -1328,10 +1909,10 @@ export default function Home() {
                     },
                     {
                       label: "Scheduled periods",
-                      value: generated ? timetable.length : "—",
+                      value: generated ? timetable.length : 0,
                       detail: generated
                         ? "Periods in the generated timetable"
-                        : "Generate a timetable to populate",
+                        : `${totalHours} requested across ${courses.length} courses · none placed yet`,
                       icon: Clock3,
                       color: "#7960a4",
                       bg: "#f3eef9",
@@ -1483,21 +2064,32 @@ export default function Home() {
                         data-scroll-reveal-item
                         className="mt-2 max-w-sm text-sm leading-6 text-white/55"
                       >
-                        Generate a timetable from your courses to see your
-                        classes on this live day view.
+                        {coursesReady
+                          ? "Before generating, review Courses and confirm each course’s weekly periods, faculty, and room. Set availability or timing preferences in Preferences."
+                          : "Start in Courses: add each course’s weekly periods, faculty, and room. Then set availability or timing preferences before generating."}
                       </p>
                       <button
-                        onClick={generateTimetable}
+                        onClick={() =>
+                          coursesReady
+                            ? generateTimetable()
+                            : openPage("Courses")
+                        }
                         disabled={loading}
                         data-scroll-reveal-item
-                        className="mt-5 flex h-11 items-center gap-2 rounded-xl bg-[#ff8a24] px-4 text-sm font-semibold text-[#252523] transition hover:bg-[#ffa14d] disabled:cursor-not-allowed disabled:opacity-60"
+                        className="mt-5 flex min-h-11 items-center gap-2 rounded-xl bg-[#ff8a24] px-4 py-2 text-sm font-semibold text-[#252523] transition hover:bg-[#ffa14d] focus-visible:outline-offset-4 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {loading ? (
                           <LoaderCircle size={16} className="animate-spin" />
+                        ) : coursesReady ? (
+                          <WandSparkles size={16} />
                         ) : (
-                          <Plus size={16} />
+                          <BookOpen size={16} />
                         )}
-                        {loading ? "Building schedule…" : "Add schedule"}
+                        {loading
+                          ? "Building schedule…"
+                          : coursesReady
+                            ? "Generate timetable"
+                            : "Configure courses"}
                       </button>
                     </div>
                   ) : selectedDayIndex < 0 ? (
@@ -1908,12 +2500,113 @@ export default function Home() {
                     </button>
                   </section>
                 </div>
+                <div className="order-5">
+                  <WorkloadCard timetable={timetable} courses={courses} />
+                </div>
               </div>
             )}
 
             {/* Full timetable */}
             {activePage === "Timetable" && (
-              <section className="reveal overflow-hidden rounded-2xl border border-[#eae9e4] bg-white">
+              <div className="reveal space-y-5">
+              {generationConflict && (
+                <section
+                  className="rounded-2xl border border-[#f0d6d0] bg-[#fff6f3] p-5"
+                  role="alert"
+                >
+                  <h2 className="text-sm font-semibold text-[#7f3326]">
+                    Timetable conflict
+                  </h2>
+                  <ul className="mt-2 space-y-1 text-sm leading-5 text-[#7f3326]">
+                    {generationConflict.constraints.map((constraint) => (
+                      <li key={constraint}>{constraint}</li>
+                    ))}
+                  </ul>
+                  {generationConflict.courses.length > 0 && (
+                    <p className="mt-2 text-xs text-[#7f3326]">
+                      Affected courses: {generationConflict.courses.join(", ")}
+                    </p>
+                  )}
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-[#7f3326]">
+                    {generationConflict.suggestions.map((suggestion) => (
+                      <li key={suggestion}>{suggestion}</li>
+                    ))}
+                  </ul>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openPage("Constraints")}
+                      className="rounded-lg border border-[#e5c4ba] px-3 py-2 text-xs font-semibold text-[#7f3326] hover:bg-white"
+                    >
+                      Review availability preferences
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openPage("Courses")}
+                      className="rounded-lg border border-[#e5c4ba] px-3 py-2 text-xs font-semibold text-[#7f3326] hover:bg-white"
+                    >
+                      Review courses and rooms
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {pendingSchedule && (
+                <section className="rounded-2xl border border-[#e9d7bc] bg-[#fffaf1] p-5 sm:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-semibold">
+                        Proposed schedule preview
+                      </h2>
+                      <p className="mt-1 text-sm text-[#635d53]">
+                        Your current timetable stays in place until you apply
+                        this proposal.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={applyPendingSchedule}
+                        className="h-10 rounded-lg bg-[#ff8a24] px-4 text-sm font-semibold text-[#252523] hover:bg-[#ffa14d]"
+                      >
+                        Apply preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingSchedule(null)}
+                        className="h-10 rounded-lg border border-[#e8e1d6] px-4 text-sm font-medium"
+                      >
+                        Keep current
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-1 text-xs leading-5 text-[#514c43]">
+                    {pendingSchedule.changes.map((change) => (
+                      <li key={change}>{change}</li>
+                    ))}
+                  </ul>
+                  {pendingSchedule.fitSummary.length > 0 && (
+                    <div className="mt-4 border-t border-[#eee2d0] pt-3">
+                      <h3 className="text-xs font-semibold">
+                        Preference fit
+                      </h3>
+                      <ul className="mt-1 space-y-1 text-xs leading-5 text-[#635d53]">
+                        {pendingSchedule.fitSummary.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="mt-5 overflow-hidden rounded-xl border border-[#e9e1d5] bg-white">
+                    <h3 className="px-4 pt-4 text-xs font-semibold">
+                      Proposed weekly grid
+                    </h3>
+                    {renderTimetable(false, pendingSchedule.timetable)}
+                  </div>
+                </section>
+              )}
+
+              <section className="overflow-hidden rounded-2xl border border-[#eae9e4] bg-white">
                 <div className="flex flex-col justify-between gap-4 border-b border-[#eeeeeb] p-6 sm:flex-row sm:items-center sm:px-8 sm:py-7">
                   <div>
                     <h2 className="text-lg font-semibold sm:text-xl">
@@ -1923,18 +2616,27 @@ export default function Home() {
                       Six periods per day · Weekly academic plan
                     </p>
                   </div>
-                  <button
-                    onClick={generateTimetable}
-                    disabled={loading}
-                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#242424] px-4 text-sm font-medium text-white transition hover:bg-[#414141] disabled:opacity-60"
-                  >
-                    {loading ? (
-                      <LoaderCircle size={16} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={16} />
-                    )}
-                    Regenerate
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={downloadCalendar}
+                      disabled={timetable.length === 0}
+                      className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#e8e1d6] px-3 text-xs font-semibold text-[#514c43] hover:bg-[#f8f5ef] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Download size={15} /> Export .ics
+                    </button>
+                    <button
+                      onClick={() => generateTimetable()}
+                      disabled={loading}
+                      className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#242424] px-4 text-sm font-medium text-white transition hover:bg-[#414141] disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <LoaderCircle size={16} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={16} />
+                      )}
+                      {timetable.length > 0 ? "Preview re-plan" : "Generate"}
+                    </button>
+                  </div>
                 </div>
 
                 {timetable.length > 0 ? (
@@ -1948,22 +2650,32 @@ export default function Home() {
                       No timetable yet
                     </h3>
                     <p className="mt-3 max-w-md text-sm leading-7 text-[#999999]">
-                      Add your courses and generate a schedule to populate your
-                      weekly calendar.
+                      {coursesReady
+                        ? "Before generating, review Courses and confirm each course’s weekly periods, faculty, and room. Set availability or timing preferences in Preferences."
+                        : "First, add courses with their weekly periods, faculty, and rooms. Then set availability or timing preferences before generating."}
                     </p>
-                    <div className="mt-6 flex flex-wrap justify-center gap-3">
+                    <div className="mt-6 flex justify-center">
                       <button
-                        onClick={() => setActivePage("Courses")}
-                        className="flex h-11 items-center gap-2 rounded-xl border border-[#e6e4df] px-4 text-sm font-medium hover:bg-[#f7f7f5]"
-                      >
-                        <BookOpen size={16} /> Manage courses
-                      </button>
-                      <button
-                        onClick={generateTimetable}
+                        onClick={() =>
+                          coursesReady
+                            ? generateTimetable()
+                            : openPage("Courses")
+                        }
                         disabled={loading}
-                        className="flex h-11 items-center gap-2 rounded-xl bg-[#242424] px-4 text-sm font-medium text-white disabled:opacity-60"
+                        className="flex min-h-11 items-center gap-2 rounded-xl bg-[#ff8a24] px-4 py-2 text-sm font-semibold text-[#252523] transition hover:bg-[#ffa14d] focus-visible:outline-offset-4 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <WandSparkles size={16} /> Generate schedule
+                        {loading ? (
+                          <LoaderCircle size={16} className="animate-spin" />
+                        ) : coursesReady ? (
+                          <WandSparkles size={16} />
+                        ) : (
+                          <BookOpen size={16} />
+                        )}
+                        {loading
+                          ? "Building schedule…"
+                          : coursesReady
+                            ? "Generate timetable"
+                            : "Configure courses"}
                       </button>
                     </div>
                   </div>
@@ -1987,6 +2699,102 @@ export default function Home() {
                   ))}
                 </div>
               </section>
+              {timetable.length > 0 && (
+                <section className="rounded-2xl border border-[#eae9e4] bg-white p-5 sm:p-6">
+                  <h2 className="text-sm font-semibold">Preview a class move</h2>
+                  <p className="mt-1 text-xs leading-5 text-[#635d53]">
+                    Choose a current class and a new period. The solver will
+                    preserve all other hard constraints; nothing changes until
+                    you apply the preview above.
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <label className="text-xs font-medium text-[#635d53]">
+                      Class to move
+                      <select
+                        className="mt-1 h-10 w-full rounded-lg border border-[#e8e1d6] bg-white px-2 text-xs"
+                        value={repairSourceIndex}
+                        onChange={(event) =>
+                          setRepairSourceIndex(Number(event.target.value))
+                        }
+                      >
+                        {timetable.map((entry, index) => (
+                          <option key={`${entry.course}-${entry.day}-${entry.slot}-${index}`} value={index}>
+                            {entry.course} · {DAYS[getDayIndex(entry.day_name ?? entry.day)]} {PERIODS[entry.slot]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs font-medium text-[#635d53]">
+                      New day
+                      <select
+                        className="mt-1 h-10 w-full rounded-lg border border-[#e8e1d6] bg-white px-2 text-sm"
+                        value={repairTargetDay}
+                        onChange={(event) =>
+                          setRepairTargetDay(Number(event.target.value))
+                        }
+                      >
+                        {DAYS.map((day, index) => (
+                          <option key={day} value={index}>{day}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs font-medium text-[#635d53]">
+                      New period
+                      <select
+                        className="mt-1 h-10 w-full rounded-lg border border-[#e8e1d6] bg-white px-2 text-sm"
+                        value={repairTargetSlot}
+                        onChange={(event) =>
+                          setRepairTargetSlot(Number(event.target.value))
+                        }
+                      >
+                        {PERIODS.map((period, index) => (
+                          <option key={period} value={index}>{period}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={loading || timetable.length === 0}
+                      onClick={() => {
+                        const source = timetable[repairSourceIndex];
+                        if (!source) return;
+                        const fromDay = getDayIndex(source.day_name ?? source.day);
+                        if (
+                          fromDay === repairTargetDay &&
+                          Number(source.slot) === repairTargetSlot
+                        ) {
+                          setError("Choose a different day or period for the preview.");
+                          return;
+                        }
+                        void generateTimetable({
+                          course: source.course,
+                          from_day: fromDay,
+                          from_slot: Number(source.slot),
+                          to_day: repairTargetDay,
+                          to_slot: repairTargetSlot,
+                        });
+                      }}
+                      className="mt-5 h-10 rounded-lg border border-[#e8e1d6] px-3 text-xs font-semibold hover:bg-[#f8f5ef] disabled:opacity-50"
+                    >
+                      Preview this move
+                    </button>
+                  </div>
+                </section>
+              )}
+              <WorkloadCard
+                timetable={pendingSchedule?.timetable ?? timetable}
+                courses={courses}
+                title={pendingSchedule ? "Preview workload" : "Weekly workload"}
+              />
+              {fitSummary.length > 0 && !pendingSchedule && (
+                <section className="rounded-xl border border-[#e9e1d5] bg-[#fffdf8] p-4">
+                  <h2 className="text-xs font-semibold">How this schedule fits</h2>
+                  <ul className="mt-2 space-y-1 text-xs leading-5 text-[#635d53]">
+                    {fitSummary.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </section>
+              )}
+              </div>
             )}
 
             {/* Courses */}
@@ -2154,7 +2962,7 @@ export default function Home() {
                       timetable.
                     </p>
                     <button
-                      onClick={generateTimetable}
+                      onClick={() => generateTimetable()}
                       disabled={loading}
                       className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#242424] px-5 text-sm font-medium text-white disabled:opacity-60"
                     >
@@ -2349,7 +3157,19 @@ export default function Home() {
 
             {/* Constraints */}
             {activePage === "Constraints" && (
-              <div className="reveal grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="reveal space-y-6">
+                <PreferencesPanel
+                  preferences={preferences}
+                  courses={courses}
+                  saved={preferencesSaved}
+                  saveError={storageError}
+                  onChange={(next) => {
+                    setPendingSchedule(null);
+                    setPreferences(next);
+                    setPreferencesSaved(false);
+                  }}
+                />
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
                 <section className="rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
                   <div className="mb-7 flex items-start gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f0edff] text-[#8172d7]">
@@ -2437,9 +3257,9 @@ export default function Home() {
                       its requested weekly periods, and prevents simultaneous
                       student-group, faculty, or room conflicts. It also caps
                       each course&apos;s daily periods based on its weekly
-                      requirement and the number of scheduling days, and
-                      prioritizes earlier time slots. Faculty availability is
-                      not configured here.
+                      requirement and the number of scheduling days. Your
+                      unavailable times are hard constraints; preferred windows,
+                      breaks, compact days, and course periods are soft goals.
                     </p>
                     <div className="mt-4 rounded-lg bg-[#faf9f6] px-3.5 py-3">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#92938b]">
@@ -2451,6 +3271,7 @@ export default function Home() {
                     </div>
                   </section>
 
+                </div>
                 </div>
               </div>
             )}

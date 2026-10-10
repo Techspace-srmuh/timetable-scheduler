@@ -18,6 +18,32 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Scheduling assistant
+
+Chronos sends timetable generation requests to the FastAPI and OR-Tools
+scheduler at `http://localhost:8000`. Start it in a second terminal:
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install fastapi uvicorn ortools
+uvicorn main:app --reload --port 8000
+```
+
+The Preferences page separates required unavailable days and time ranges from
+soft preferences such as the preferred day window, breaks, compact days, gaps,
+and course periods. The solver rejects hard conflicts and returns a preview;
+the current timetable is changed only after the student applies that preview.
+The Calendar page also supports individual move previews and exports the
+applied timetable as a weekly `.ics` file.
+
+Courses, preferences, and the applied timetable are stored in the current
+browser's local storage; they are not synchronized to an account or another
+device. Automatic reminders are not available because the app has no reliable
+background notification service. The existing assistant needs the server-side
+OpenAI configuration below to answer using the supplied planner snapshot.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Chronos assistant setup
