@@ -11,6 +11,8 @@
   "dependencies": {
     "@gsap/react": "^2.1.2",
     "@lottiefiles/dotlottie-react": "^0.20.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
     "gsap": "^3.15.0",
     "lucide-react": "^1.54.0",
     "next": "16.4.0",
@@ -29,6 +31,8 @@
     "typescript": "^5"
   },
   "allowScripts": {
-    "gsap@3.15.0": true
+    "gsap@3.15.0": true,
+    "@supabase/supabase-js@2.117.3": true,
+    "@supabase/ssr@0.12.7": true
   }
 }

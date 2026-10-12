@@ -1,6 +1,7 @@
 
 "use client";
 
+import LogoutButton from "@/components/logout-button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import gsap from "gsap";
@@ -1438,7 +1439,7 @@ export default function Home() {
                     >
                       {entry ? (
                         <div
-                          className="flex h-full min-h-[100px] flex-col justify-between rounded-xl border p-3 sm:min-h-[126px] sm:p-4"
+                          className="timetable-class-card flex h-full min-h-[100px] flex-col justify-between rounded-xl border p-3 sm:min-h-[126px] sm:p-4"
                           style={{
                             backgroundColor: `${accent}14`,
                             borderColor: `${accent}45`,
@@ -1490,13 +1491,223 @@ export default function Home() {
   return (
     <div
       ref={root}
-      className="app-frame min-h-screen overflow-x-clip bg-[#f5f1e9] text-[#262521] selection:bg-[#ffe1bd]"
+      className="app-frame chronos-liquid-theme min-h-screen overflow-x-clip bg-[#f5f1e9] text-[#262521] selection:bg-[#ffe1bd]"
     >
+
+      <style jsx global>{`
+        .chronos-liquid-theme {
+          position: relative;
+          isolation: isolate;
+          background-color: #f5f1e9;
+          background-image:
+            radial-gradient(ellipse at 8% 3%, rgba(255, 179, 105, 0.14), transparent 34%),
+            radial-gradient(ellipse at 92% 14%, rgba(155, 145, 255, 0.12), transparent 30%),
+            radial-gradient(ellipse at 54% 90%, rgba(112, 201, 191, 0.09), transparent 36%);
+          background-repeat: no-repeat;
+        }
+
+        .chronos-shell {
+          width: 100%;
+          min-width: 0;
+          align-items: flex-start;
+        }
+
+        .liquid-glass-panel {
+          background-color: rgba(255, 253, 248, 0.76) !important;
+          border-color: rgba(220, 211, 196, 0.78) !important;
+          -webkit-backdrop-filter: blur(18px) saturate(1.16);
+          backdrop-filter: blur(18px) saturate(1.16);
+          box-shadow:
+            0 10px 30px rgba(53, 45, 32, 0.045),
+            inset 0 1px 0 rgba(255, 255, 255, 0.88);
+          transition:
+            background-color 220ms ease,
+            border-color 220ms ease,
+            box-shadow 220ms ease,
+            transform 220ms ease;
+        }
+
+        .top-header.liquid-glass-panel {
+          background-image: linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.48),
+            rgba(255, 250, 239, 0.2)
+          );
+        }
+
+        .liquid-sidebar {
+          background:
+            radial-gradient(ellipse at 10% 0%, rgba(255, 138, 36, 0.14), transparent 45%),
+            linear-gradient(155deg, rgba(45, 44, 41, 0.97), rgba(31, 31, 29, 0.98)) !important;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          box-shadow:
+            0 22px 60px rgba(31, 29, 25, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        }
+
+        .dashboard-metric-card,
+        .feature-card,
+        .agenda-panel,
+        .page-content-stage section.scroll-reveal {
+          transition:
+            transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1),
+            box-shadow 260ms ease,
+            border-color 260ms ease,
+            background-color 260ms ease;
+        }
+
+        .dashboard-metric-card,
+        .feature-card {
+          -webkit-backdrop-filter: blur(12px) saturate(1.08);
+          backdrop-filter: blur(12px) saturate(1.08);
+        }
+
+        .dashboard-metric-card:hover,
+        .feature-card:hover {
+          border-color: rgba(255, 138, 36, 0.32);
+          box-shadow:
+            0 16px 38px rgba(48, 40, 28, 0.075),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+
+        .timetable-class-card {
+          position: relative;
+          overflow: hidden;
+          isolation: isolate;
+          transform: translateZ(0);
+          animation: chronos-card-enter 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+          transition:
+            transform 220ms ease,
+            box-shadow 220ms ease,
+            border-color 220ms ease;
+        }
+
+        .timetable-class-card::after {
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          content: "";
+          pointer-events: none;
+          background: linear-gradient(
+            120deg,
+            rgba(255, 255, 255, 0.34),
+            transparent 42%,
+            rgba(255, 255, 255, 0.08)
+          );
+          opacity: 0.62;
+        }
+
+        .timetable-class-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 24px rgba(44, 38, 29, 0.075);
+        }
+
+        .chronos-dropdown {
+          transform-origin: top right;
+          animation: chronos-dropdown-enter 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+          -webkit-backdrop-filter: blur(18px) saturate(1.14);
+          backdrop-filter: blur(18px) saturate(1.14);
+        }
+
+        .mobile-navigation.liquid-glass-panel {
+          bottom: max(0.75rem, env(safe-area-inset-bottom));
+          background-color: rgba(255, 253, 248, 0.88) !important;
+          box-shadow:
+            0 14px 45px rgba(34, 30, 23, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        }
+
+        .chronos-liquid-theme button {
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .chronos-liquid-theme button:active {
+          transition-duration: 90ms;
+        }
+
+        .chronos-liquid-theme button:active:not(:disabled) {
+          transform: scale(0.985);
+        }
+
+        .chronos-liquid-theme button:focus-visible,
+        .chronos-liquid-theme input:focus-visible,
+        .chronos-liquid-theme select:focus-visible,
+        .chronos-liquid-theme textarea:focus-visible {
+          outline: 2px solid rgba(255, 138, 36, 0.78);
+          outline-offset: 3px;
+        }
+
+        .page-content-stage,
+        .page-content-stage > * {
+          min-width: 0;
+        }
+
+        .page-content-stage .overflow-x-auto {
+          max-width: 100%;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          touch-action: auto;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(157, 146, 126, 0.45) transparent;
+        }
+
+        @keyframes chronos-card-enter {
+          from {
+            opacity: 0;
+            transform: translateY(7px) scale(0.99);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes chronos-dropdown-enter {
+          from {
+            opacity: 0;
+            transform: translateY(-5px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @media (max-width: 767px) {
+          .chronos-shell {
+            gap: 0;
+          }
+
+          .top-header.liquid-glass-panel {
+            -webkit-backdrop-filter: blur(14px) saturate(1.1);
+            backdrop-filter: blur(14px) saturate(1.1);
+          }
+
+          .page-content-stage {
+            padding-bottom: max(6rem, calc(5.5rem + env(safe-area-inset-bottom)));
+          }
+
+          .timetable-class-card:hover {
+            transform: none;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .chronos-liquid-theme *,
+          .chronos-liquid-theme *::before,
+          .chronos-liquid-theme *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            scroll-behavior: auto !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       {introVisible && <StartupIntro onComplete={dismissIntro} />}
       <div
         aria-hidden={introVisible}
         inert={introVisible}
-        className="dashboard-shell relative isolate flex min-h-screen gap-5 p-3 sm:gap-6 sm:p-5"
+        className="dashboard-shell chronos-shell relative isolate flex min-h-screen gap-5 p-3 sm:gap-6 sm:p-5"
       >
         {fluidSmokeReady && (
           <div
@@ -1506,7 +1717,7 @@ export default function Home() {
           />
         )}
         {/* Desktop sidebar */}
-        <aside className="desktop-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[240px] shrink-0 flex-col overflow-y-auto rounded-[26px] bg-[#252523] px-4 py-5 text-white shadow-[0_20px_60px_rgba(31,29,25,0.14)] lg:flex">
+        <aside className="desktop-sidebar liquid-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] w-[240px] shrink-0 flex-col overflow-y-auto rounded-[26px] bg-[#252523] px-4 py-5 text-white shadow-[0_20px_60px_rgba(31,29,25,0.14)] lg:flex">
           <div className="mb-9 flex items-center gap-3 px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ff8a24] text-[#252523]">
               <Activity size={22} strokeWidth={1.8} />
@@ -1560,20 +1771,26 @@ export default function Home() {
             onOpenCalendar={() => openPage("Timetable")}
           />
 
-          <div className="mt-auto flex items-center gap-3 border-t border-white/10 px-2 pt-5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">
-              SW
-            </div>
-            <div>
-              <p className="text-xs font-semibold">Student workspace</p>
-              <p className="mt-1 text-[10px] text-white/45">Local planner</p>
-            </div>
-          </div>
+<div className="mt-auto border-t border-white/10 px-2 pt-5">
+  <div className="mb-4 flex items-center gap-3">
+    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9e0d0] text-[11px] font-semibold text-[#454139]">
+      SW
+    </div>
+    <div>
+      <p className="text-xs font-semibold">Student workspace</p>
+      <p className="mt-1 text-[10px] text-white/45">
+        Local planner
+      </p>
+    </div>
+  </div>
+
+  <LogoutButton />
+</div>
         </aside>
 
         {/* Main content */}
         <main className="min-w-0 flex-1">
-          <header className="top-header relative z-40 flex min-h-[68px] items-center justify-between gap-4 rounded-2xl border border-[#e8e1d6] bg-[#faf8f3] px-4 shadow-[0_4px_16px_rgba(44,39,31,0.035)] sm:px-6">
+          <header className="top-header liquid-glass-panel relative z-40 flex min-h-[68px] items-center justify-between gap-4 rounded-2xl border border-[#e8e1d6] bg-[#faf8f3] px-4 shadow-[0_4px_16px_rgba(44,39,31,0.035)] sm:px-6">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#252523] text-[#ff8a24] lg:hidden">
                 <Activity size={16} />
@@ -1650,7 +1867,7 @@ export default function Home() {
             </div>
 
             {notificationsOpen && (
-              <div className="absolute right-14 top-[calc(100%+10px)] z-50 w-[min(320px,calc(100vw-32px))] rounded-2xl border border-[#e8e1d6] bg-white p-4 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
+              <div className="chronos-dropdown absolute right-14 top-[calc(100%+10px)] z-50 w-[min(320px,calc(100vw-32px))] rounded-2xl border border-[#e8e1d6] bg-white p-4 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-[#292823]">
                     Updates
@@ -1707,7 +1924,7 @@ export default function Home() {
             )}
 
             {profileOpen && (
-              <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-56 rounded-2xl border border-[#e8e1d6] bg-white p-2 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
+              <div className="chronos-dropdown absolute right-0 top-[calc(100%+10px)] z-50 w-56 rounded-2xl border border-[#e8e1d6] bg-white p-2 shadow-[0_18px_55px_rgba(34,30,23,0.16)]">
                 <div className="border-b border-[#eee8de] px-3 py-2.5">
                   <p className="text-xs font-semibold text-[#292823]">
                     Student workspace
@@ -1735,7 +1952,7 @@ export default function Home() {
           {/* Mobile navigation */}
           <nav
             aria-label="Primary"
-            className="mobile-navigation fixed inset-x-3 bottom-3 z-40 grid grid-cols-6 rounded-2xl border border-[#e6ded1] bg-[#fffdf8]/95 p-1.5 shadow-[0_14px_45px_rgba(34,30,23,0.18)] backdrop-blur lg:hidden"
+            className="mobile-navigation liquid-glass-panel fixed inset-x-3 bottom-3 z-40 grid grid-cols-6 rounded-2xl border border-[#e6ded1] bg-[#fffdf8]/95 p-1.5 shadow-[0_14px_45px_rgba(34,30,23,0.18)] backdrop-blur lg:hidden"
           >
               {NAVIGATION.map((item) => {
                 const Icon = item.icon;
@@ -1763,7 +1980,7 @@ export default function Home() {
 
           <div
             ref={pageContentRef}
-            className="mx-auto w-full max-w-[1440px] px-1 pb-24 pt-7 sm:px-2 sm:pb-28 sm:pt-9 lg:px-4 lg:pb-10 lg:pt-9"
+            className="page-content-stage mx-auto w-full max-w-[1440px] px-4 pb-24 pt-7 sm:px-6 sm:pb-28 sm:pt-9 lg:px-6 lg:pb-10 lg:pt-9"
           >
             <label className="relative mb-5 block md:hidden">
               <Search
