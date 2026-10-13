@@ -24,7 +24,7 @@ export default function WorkloadCard({
   return (
     <section
       aria-label={title}
-      className="rounded-2xl border border-[#eae9e4] bg-white p-5 sm:p-6"
+      className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-5 sm:p-6"
     >
       <div className="flex items-center gap-2">
         <CalendarDays size={17} className="text-[#bf5a12]" />

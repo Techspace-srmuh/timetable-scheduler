@@ -8,6 +8,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import type { Controller as ScrollMagicController } from "scrollmagic";
 import SidebarRobot from "./sidebar-robot";
+import DashboardPageHeader from "./dashboard/page-header";
 import PreferencesPanel from "./scheduling/preferences-panel";
 import WorkloadCard from "./scheduling/workload-card";
 import { createCalendarIcs } from "./scheduling/insights";
@@ -259,18 +260,18 @@ const PAGE_CONTENT: Record<
   },
   Faculty: {
     eyebrow: "ACADEMIC DIRECTORY",
-    title: "Faculty",
+    title: "Faculty overview",
     description: "Review faculty members and their current course assignments.",
   },
   Rooms: {
     eyebrow: "CAMPUS DIRECTORY",
-    title: "Rooms",
+    title: "Room directory",
     description: "Review rooms and the courses currently assigned to each one.",
   },
   Constraints: {
-    eyebrow: "ACADEMIC PLANNER",
-    title: "Constraints",
-    description: "Review the scheduler configuration.",
+    eyebrow: "SCHEDULING PREFERENCES",
+    title: "Preferences",
+    description: "Set availability and preferred class windows to guide scheduling.",
   },
 };
 
@@ -526,7 +527,7 @@ export default function Home() {
 
     const targets = Array.from(
       root.current.querySelectorAll<HTMLElement>(
-        ".scroll-reveal, .feature-card"
+        ".scroll-reveal:not(.dashboard-metric-card):not(.dashboard-feature-card), .feature-card:not(.dashboard-feature-card)"
       )
     );
     const motionPreference = window.matchMedia(
@@ -1799,7 +1800,7 @@ export default function Home() {
               </div>
             </div>
 
-            <label className="relative hidden max-w-[340px] flex-1 md:block">
+            <label className={`relative max-w-[340px] flex-1 ${activePage === "Courses" ? "hidden" : "hidden md:block"}`}>
               <Search
                 size={16}
                 className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
@@ -1976,45 +1977,75 @@ export default function Home() {
             ref={pageContentRef}
             className="page-content-stage mx-auto w-full max-w-[1440px] px-4 pb-24 pt-7 sm:px-6 sm:pb-28 sm:pt-9 lg:px-6 lg:pb-10 lg:pt-9"
           >
-            <label className="relative mb-5 block md:hidden">
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
-              />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search courses, faculty, rooms..."
-                aria-label="Search courses, faculty, and rooms"
-                className="h-11 w-full rounded-xl border border-[#e8e1d6] bg-[#fffdf8] pl-10 pr-4 text-xs text-[#2a2925] outline-none transition placeholder:text-[#a9a196] focus:border-[#ff8a24]"
-              />
-            </label>
-
-            {/* Page heading */}
-            <div className="page-heading mb-8 flex flex-col justify-between gap-5 border-b border-[#e7dfd3] pb-7 sm:mb-8 sm:flex-row sm:items-end">
-              <div className="page-heading-copy">
-                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#bf5a12]">
-                  {activePage === "Overview"
-                    ? "YOUR PERSONAL PLANNER"
-                    : pageContent.eyebrow}
-                </p>
-                <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.045em] text-[#292823] sm:text-[36px]">
-                  {activePage === "Overview"
-                    ? `${currentTime ? (currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening") : "Welcome"}, Student`
-                    : pageContent.title}
-                </h1>
-                <p className="mt-2.5 max-w-2xl text-[13px] leading-6 text-[#777064]">
-                  {activePage === "Overview"
-                    ? "A clear plan for your classes, with room to focus between them."
-                    : pageContent.description}
-                </p>
-              </div>
-
-              {(activePage === "Overview" ||
+            <DashboardPageHeader
+              eyebrow={
+                activePage === "Overview"
+                  ? "YOUR PERSONAL PLANNER"
+                  : pageContent.eyebrow
+              }
+              title={
+                activePage === "Overview"
+                  ? `${currentTime ? (currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening") : "Welcome"}, Student`
+                  : pageContent.title
+              }
+              description={
+                activePage === "Overview"
+                  ? "A clear plan for your classes, with room to focus between them."
+                  : pageContent.description
+              }
+              controls={
+                activePage === "Courses" ? (
+                  <label className="relative block w-full max-w-lg">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
+                    />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search courses, faculty, or rooms..."
+                      aria-label="Search courses, faculty, and rooms"
+                      className="h-11 w-full rounded-xl border border-[#e8e1d6] bg-white/80 pl-10 pr-4 text-xs text-[#2a2925] outline-none transition placeholder:text-[#8e877c] focus:border-[#ff8a24]"
+                    />
+                  </label>
+                ) : (
+                  <label className="relative block md:hidden">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#999184]"
+                    />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search courses, faculty, rooms..."
+                      aria-label="Search courses, faculty, and rooms"
+                      className="h-11 w-full rounded-xl border border-[#e8e1d6] bg-white/80 pl-10 pr-4 text-xs text-[#2a2925] outline-none transition placeholder:text-[#8e877c] focus:border-[#ff8a24]"
+                    />
+                  </label>
+                )
+              }
+              metadata={
+                activePage === "Courses" ? (
+                  <span className="rounded-xl border border-[#e8e1d6] bg-white/75 px-3.5 py-2 text-xs font-medium text-[#625b50]">
+                    {filteredCourses.length} shown
+                  </span>
+                ) : activePage === "Faculty" ? (
+                  <span className="rounded-xl border border-[#e8e1d6] bg-white/75 px-3.5 py-2 text-xs font-medium text-[#625b50]">
+                    {filteredFacultyGroups.length} of {facultyGroups.length} members
+                  </span>
+                ) : activePage === "Rooms" ? (
+                  <span className="rounded-xl border border-[#e8e1d6] bg-white/75 px-3.5 py-2 text-xs font-medium text-[#625b50]">
+                    {filteredRoomGroups.length} of {roomGroups.length} rooms
+                  </span>
+                ) : null
+              }
+              actions={
+                activePage === "Overview" ||
                 activePage === "Timetable" ||
                 activePage === "Constraints" ||
-                activePage === "Courses") && (
+                activePage === "Courses" ? (
                 <button
                   onClick={
                     activePage === "Courses"
@@ -2044,15 +2075,16 @@ export default function Home() {
                     : loading
                       ? "Generating..."
                       : activePage === "Overview"
-                      ? timetable.length > 0
-                        ? "Add schedule"
-                        : coursesReady
-                          ? "Generate timetable"
-                          : "Configure courses"
-                      : "Generate timetable"}
+                        ? timetable.length > 0
+                          ? "Add schedule"
+                          : coursesReady
+                            ? "Generate timetable"
+                            : "Configure courses"
+                        : "Generate timetable"}
                 </button>
-              )}
-            </div>
+                ) : null
+              }
+            />
 
             {/* Status messages */}
             {error && (
@@ -2086,13 +2118,14 @@ export default function Home() {
             {/* Overview */}
             {activePage === "Overview" && (
               <div className="overview-stack">
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="dashboard-metric-grid grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
                   {[
                     {
                       label: "Courses configured",
                       value: courses.length,
                       detail: "Courses in this workspace",
                       icon: BookOpen,
+                      tone: "courses",
                       color: "#7953a6",
                       bg: "#f3eef9",
                       cardBg: "#f3e7bf",
@@ -2103,6 +2136,7 @@ export default function Home() {
                       value: uniqueFaculty,
                       detail: "Unique faculty assignments",
                       icon: GraduationCap,
+                      tone: "faculty",
                       color: "#459b87",
                       bg: "#e7f6f0",
                       cardBg: "#dcebe5",
@@ -2113,6 +2147,7 @@ export default function Home() {
                       value: uniqueRooms,
                       detail: "Rooms assigned to courses",
                       icon: DoorOpen,
+                      tone: "rooms",
                       color: "#648ed0",
                       bg: "#eaf1ff",
                       cardBg: "#d9e9e7",
@@ -2125,6 +2160,7 @@ export default function Home() {
                         ? "Periods in the generated timetable"
                         : `${totalHours} requested across ${courses.length} courses · none placed yet`,
                       icon: Clock3,
+                      tone: "periods",
                       color: "#7960a4",
                       bg: "#f3eef9",
                       cardBg: "#f1ead5",
@@ -2136,7 +2172,7 @@ export default function Home() {
                     return (
                       <div
                         key={stat.label}
-                        className="dashboard-metric-card scroll-reveal rounded-2xl border border-[#d8e5e2] border-t-[3px] p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.045)] sm:p-6"
+                        className={`dashboard-metric-card dashboard-metric-card--${stat.tone} scroll-reveal rounded-2xl border border-[#d8e5e2] border-t-[3px] p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.045)] sm:p-6`}
                         style={{
                           backgroundColor: stat.cardBg,
                           borderTopColor: stat.borderColor,
@@ -2471,8 +2507,8 @@ export default function Home() {
                   )}
                 </section>
 
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                  <section className="feature-card flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
+                <div className="dashboard-feature-grid grid grid-cols-1 gap-5 md:grid-cols-2">
+                  <section className="feature-card dashboard-feature-card dashboard-feature-card--next flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
                     <div data-scroll-reveal-icon className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#fff0df] text-[#c75d12]">
                       <Clock3 size={21} />
                     </div>
@@ -2513,7 +2549,7 @@ export default function Home() {
                     </button>
                   </section>
 
-                  <section className="feature-card flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
+                  <section className="feature-card dashboard-feature-card dashboard-feature-card--setup flex min-h-[154px] items-center gap-4 rounded-[22px] border border-[#e9e1d5] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(45,38,28,0.045)] sm:p-6">
                     <div data-scroll-reveal-icon className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f1eee7] text-[#504a40]">
                       <Check size={21} />
                     </div>
@@ -2558,7 +2594,7 @@ export default function Home() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                  <section className="scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                  <section className="dashboard-feature-card scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
                     <SectionHeading
                       title="Course catalogue"
                       description="A quick look at the subjects in your plan."
@@ -2622,7 +2658,7 @@ export default function Home() {
                     </div>
                   </section>
 
-                  <section className="scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                  <section className="dashboard-feature-card scroll-reveal rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
                     <SectionHeading
                       title="Workspace status"
                       description="Your current scheduling setup."
@@ -2722,7 +2758,7 @@ export default function Home() {
               <div className="reveal space-y-5">
               {generationConflict && (
                 <section
-                  className="rounded-2xl border border-[#f0d6d0] bg-[#fff6f3] p-5"
+                  className="dashboard-feature-card rounded-2xl border border-[#f0d6d0] bg-[#fff6f3] p-5"
                   role="alert"
                 >
                   <h2 className="text-sm font-semibold text-[#7f3326]">
@@ -2763,7 +2799,7 @@ export default function Home() {
               )}
 
               {pendingSchedule && (
-                <section className="rounded-2xl border border-[#e9d7bc] bg-[#fffaf1] p-5 sm:p-6">
+                <section className="dashboard-feature-card rounded-2xl border border-[#e9d7bc] bg-[#fffaf1] p-5 sm:p-6">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <h2 className="text-base font-semibold">
@@ -2817,7 +2853,7 @@ export default function Home() {
                 </section>
               )}
 
-              <section className="overflow-hidden rounded-2xl border border-[#eae9e4] bg-white">
+              <section className="dashboard-feature-card overflow-hidden rounded-2xl border border-[#eae9e4] bg-white">
                 <div className="flex flex-col justify-between gap-4 border-b border-[#eeeeeb] p-6 sm:flex-row sm:items-center sm:px-8 sm:py-7">
                   <div>
                     <h2 className="text-lg font-semibold sm:text-xl">
@@ -2911,7 +2947,7 @@ export default function Home() {
                 </div>
               </section>
               {timetable.length > 0 && (
-                <section className="rounded-2xl border border-[#eae9e4] bg-white p-5 sm:p-6">
+                <section className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-5 sm:p-6">
                   <h2 className="text-sm font-semibold">Preview a class move</h2>
                   <p className="mt-1 text-xs leading-5 text-[#635d53]">
                     Choose a current class and a new period. The solver will
@@ -2998,7 +3034,7 @@ export default function Home() {
                 title={pendingSchedule ? "Preview workload" : "Weekly workload"}
               />
               {fitSummary.length > 0 && !pendingSchedule && (
-                <section className="rounded-xl border border-[#e9e1d5] bg-[#fffdf8] p-4">
+                <section className="dashboard-feature-card rounded-xl border border-[#e9e1d5] bg-[#fffdf8] p-4">
                   <h2 className="text-xs font-semibold">How this schedule fits</h2>
                   <ul className="mt-2 space-y-1 text-xs leading-5 text-[#635d53]">
                     {fitSummary.map((item) => <li key={item}>{item}</li>)}
@@ -3011,7 +3047,7 @@ export default function Home() {
             {/* Courses */}
             {activePage === "Courses" && (
               <div className="reveal space-y-6">
-                <section className="overflow-hidden rounded-2xl border border-[#e8e8df] bg-white">
+                <section className="dashboard-feature-card overflow-hidden rounded-2xl border border-[#e8e8df] bg-white">
                   <div className="flex flex-col justify-between gap-4 border-b border-[#eeeeeb] p-6 sm:flex-row sm:items-center sm:px-8 sm:py-7">
                     <div>
                       <h2 className="text-lg font-semibold sm:text-xl">
@@ -3022,24 +3058,6 @@ export default function Home() {
                         {courses.length === 1 ? "course" : "courses"} ·{" "}
                         {totalHours} requested weekly periods
                       </p>
-                    </div>
-                    <span className="w-fit rounded-lg border border-[#e8e8df] bg-[#fbfbf8] px-3 py-2 text-xs text-[#77786f]">
-                      {filteredCourses.length} shown
-                    </span>
-                  </div>
-
-                  <div className="border-b border-[#eeeeeb] p-5 sm:px-8">
-                    <div className="relative max-w-lg">
-                      <Search
-                        size={17}
-                        className="absolute left-4 top-1/2 -translate-y-1/2 text-[#aaaaaa]"
-                      />
-                      <input
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search courses, faculty, or rooms..."
-                        className="h-12 w-full rounded-xl border border-[#e9e8e4] bg-[#fbfbfa] pl-11 pr-4 text-sm outline-none transition placeholder:text-[#b1b1b1] focus:border-[#c9c0ff] focus:bg-white"
-                      />
                     </div>
                   </div>
 
@@ -3192,23 +3210,12 @@ export default function Home() {
             {/* Faculty */}
             {activePage === "Faculty" && (
               <div className="reveal">
-                <SectionHeading
-                  title="Faculty overview"
-                  description="Faculty members and their assigned courses."
-                  action={
-                    <span className="rounded-xl border border-[#e8e7e2] bg-white px-4 py-2.5 text-sm text-[#777777]">
-                      {filteredFacultyGroups.length} of {facultyGroups.length}{" "}
-                      members
-                    </span>
-                  }
-                />
-
                 {filteredFacultyGroups.length > 0 ? (
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {filteredFacultyGroups.map(([faculty, assignedCourses]) => (
                       <div
                         key={faculty}
-                        className="rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
+                        className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f0edff] text-sm font-semibold text-[#8172d7]">
@@ -3257,7 +3264,7 @@ export default function Home() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
+                  <div className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
                     {facultyGroups.length === 0 ? (
                       "No faculty assignments available. Add courses to get started."
                     ) : (
@@ -3279,22 +3286,12 @@ export default function Home() {
             {/* Rooms */}
             {activePage === "Rooms" && (
               <div className="reveal">
-                <SectionHeading
-                  title="Room directory"
-                  description="Classrooms and labs assigned to your courses."
-                  action={
-                    <span className="rounded-xl border border-[#e8e7e2] bg-white px-4 py-2.5 text-sm text-[#777777]">
-                      {filteredRoomGroups.length} of {roomGroups.length} rooms
-                    </span>
-                  }
-                />
-
                 {filteredRoomGroups.length > 0 ? (
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {filteredRoomGroups.map(([room, assignedCourses]) => (
                       <div
                         key={room}
-                        className="rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
+                        className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-6 transition hover:-translate-y-1 hover:shadow-[0_12px_35px_rgba(30,30,30,0.04)] sm:p-7"
                       >
                         <div className="flex items-start justify-between">
                           <div
@@ -3347,7 +3344,7 @@ export default function Home() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
+                  <div className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white px-6 py-16 text-center text-sm text-[#999999]">
                     {roomGroups.length === 0 ? (
                       "No rooms available. Add courses with room assignments."
                     ) : (
@@ -3381,7 +3378,7 @@ export default function Home() {
                   }}
                 />
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                <section className="rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                <section className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
                   <div className="mb-7 flex items-start gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f0edff] text-[#8172d7]">
                       <Settings2 size={22} />
@@ -3455,7 +3452,7 @@ export default function Home() {
                 </section>
 
                 <div className="space-y-4">
-                  <section className="rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
+                  <section className="dashboard-feature-card rounded-2xl border border-[#eae9e4] bg-white p-6 sm:p-8">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff4e5] text-[#c28b43]">
                       <Clock3 size={22} />
                     </div>
