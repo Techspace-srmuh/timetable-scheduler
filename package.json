@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "lucide-react": "^1.54.0",
+    "scrollmagic": "^2.0.9"
+  }
+}
