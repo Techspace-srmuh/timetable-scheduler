@@ -40,8 +40,11 @@ export default function WelcomePage() {
         video.pause();
       }
       reveal();
-    } else if (videoRef.current?.readyState >= 2) {
-      void videoRef.current.play().catch(reveal);
+    } else {
+      const video = videoRef.current;
+      if (video && video.readyState >= 2) {
+        void video.play().catch(reveal);
+      }
     }
     return () => {
       query.removeEventListener("change", sync);
